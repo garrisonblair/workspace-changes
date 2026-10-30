@@ -102,7 +102,7 @@ function tryNormalizeFontSize(size) {
  */
 const QUALIFIERS = {
   base: '.show-file-icons',
-  light: 'body.vscode-light .show-file-icons',
+  light: '.vscode-light .show-file-icons', // one class, like VS Code's `.vs`
   hcDark: 'body.vscode-high-contrast:not(.vscode-high-contrast-light) .show-file-icons',
   hcLight: 'body.vscode-high-contrast-light .show-file-icons',
 };
@@ -222,7 +222,7 @@ function buildIconThemeCss(doc, resolveUrl, languageIcons = []) {
       if (coveredLanguages[li.id]) continue;
       const selector = `.show-file-icons .${classSelectorPart(li.id)}-lang-file-icon.file-icon::before`;
       rules.push(`${selector} { content: ${emQuad}; ${imageIconStyle(asCSSUrl(li.dark))} }`);
-      rules.push(`body.vscode-light ${selector} { content: ${emQuad}; ${imageIconStyle(asCSSUrl(li.light))} }`);
+      rules.push(`.vscode-light ${selector} { content: ${emQuad}; ${imageIconStyle(asCSSUrl(li.light))} }`);
     }
   }
   return rules.join('\n');
@@ -355,4 +355,80 @@ function loadIconTheme(extensions, themeId) {
   return null;
 }
 
-module.exports = { parseJsonc, cssEscape, buildIconThemeCss, getIconClasses, LanguageRegistry, loadIconTheme, globToRegExp, QUALIFIERS };
+// ------------------------------------------------------------------ resolve one file's icon (no CSS)
+
+/**
+ * Which icon VS Code would draw for a file, computed directly from the theme document instead of
+ * through CSS: reproduces the selectors buildIconThemeCss emits and the CSS cascade between them
+ * (specificity = number of classes, ties go to the rule emitted later, each property cascades on
+ * its own). Used where only image icons can be shown (QuickPickItem.iconPath).
+ *
+ * @param classes  getIconClasses() output
+ * @param variant  'dark' | 'light' | 'hcDark' | 'hcLight'
+ * @returns { iconPath } | { fontCharacter, fontColor, fontId, fontSize } | null
+ */
+function resolveFileIcon(doc, classes, variant = 'dark') {
+  if (!doc || !doc.iconDefinitions) return null;
+  const has = new Set(classes);
+  const ruleOrder = new Map(); // defId -> CSS rule index (first time the def is seen, as in VS Code)
+  const candidates = [];
+  const variants = [[doc, 0, true], [doc.light, 1, variant === 'light'], [doc.highContrast, 1, variant === 'hcDark'], [doc.highContrast, 1, variant === 'hcLight']];
+  for (const [assoc, extra, applies] of variants) {
+    if (!assoc) continue;
+    const add = (sel, defId) => {
+      if (!defId) return;
+      if (!ruleOrder.has(defId)) ruleOrder.set(defId, ruleOrder.size);
+      // + .show-file-icons + variant qualifier + .file-icon
+      if (applies && sel.every((c) => has.has(c))) candidates.push({ defId, spec: sel.length + 2 + extra });
+    };
+    if (assoc.file) add([], assoc.file);
+    const languageIds = assoc.languageIds ? { ...assoc.languageIds } : undefined;
+    if (languageIds) {
+      if (!languageIds.jsonc && languageIds.json) languageIds.jsonc = languageIds.json;
+      for (const id in languageIds) add([`${fileIconSelectorEscape(id)}-lang-file-icon`], languageIds[id]);
+    }
+    for (const key in assoc.fileExtensions || {}) {
+      const sel = [];
+      const name = parentFolder(key.toLowerCase(), sel);
+      const segs = name.split('.');
+      for (let i = 0; i < segs.length; i++) sel.push(`${fileIconSelectorEscape(segs.slice(i).join('.'))}-ext-file-icon`);
+      sel.push('ext-file-icon');
+      add(sel, assoc.fileExtensions[key]);
+    }
+    for (const key in assoc.fileNames || {}) {
+      const sel = [];
+      const fileName = parentFolder(key.toLowerCase(), sel);
+      sel.push(`${fileIconSelectorEscape(fileName)}-name-file-icon`, 'name-file-icon');
+      const segs = fileName.split('.');
+      for (let i = 1; i < segs.length; i++) sel.push(`${fileIconSelectorEscape(segs.slice(i).join('.'))}-ext-file-icon`);
+      sel.push('ext-file-icon');
+      add(sel, assoc.fileNames[key]);
+    }
+  }
+  // highest specificity first; equal specificity → later rule wins
+  candidates.sort((a, b) => (b.spec - a.spec) || (ruleOrder.get(b.defId) - ruleOrder.get(a.defId)));
+  const pick = (prop) => {
+    for (const c of candidates) {
+      const def = doc.iconDefinitions[c.defId];
+      if (def && def[prop] !== undefined && (prop !== 'fontColor' || fontColorRegex.test(def.fontColor))) return def[prop];
+    }
+    return undefined;
+  };
+  for (const c of candidates) {
+    const def = doc.iconDefinitions[c.defId];
+    if (!def) continue;
+    if (def.iconPath) return { iconPath: def.iconPath, defId: c.defId };
+    if (def.fontCharacter || def.fontColor) {
+      return { fontCharacter: pick('fontCharacter'), fontColor: pick('fontColor'), fontId: pick('fontId'), fontSize: pick('fontSize'), defId: c.defId };
+    }
+  }
+  return null;
+}
+
+function parentFolder(key, sel) {
+  const i = key.lastIndexOf('/');
+  if (i >= 0) { sel.push(`${fileIconSelectorEscape(key.substring(0, i))}-name-dir-icon`); return key.substring(i + 1); }
+  return key;
+}
+
+module.exports = { resolveFileIcon, tryNormalizeFontSize, parseJsonc, cssEscape, buildIconThemeCss, getIconClasses, LanguageRegistry, loadIconTheme, globToRegExp, QUALIFIERS };

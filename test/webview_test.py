@@ -286,6 +286,23 @@ def main():
             check('all icon files resolve', loaded)
             pg.screenshot(path=str(OUT / 'screenshot-svg-theme.png'), full_page=True)
 
+            # the icon resolver used for Go to File images must pick exactly what the CSS cascade picks
+            for theme in ('vs-seti', 'svg-icons'):
+                data = json.loads(subprocess.run(['node', str(ROOT / 'test' / 'icon_resolve_check.js'), theme], capture_output=True, text=True, check=True).stdout)
+                bad = 0
+                for variant in ('dark', 'light'):
+                    spans = ''.join(f'<span class="{f["classes"]}" id="f{i}"></span>' for i, f in enumerate(data['files']))
+                    pg.set_content(f'<html><head><style>{data["css"]}</style></head><body class="vscode-{variant}"><div class="show-file-icons">{spans}</div></body></html>')
+                    got = pg.evaluate('''n => Array.from({length: n}, (_, i) => { const s = getComputedStyle(document.getElementById('f' + i), '::before'); return { content: s.content, color: s.color, bg: s.backgroundImage }; })''', len(data['files']))
+                    for f, g in zip(data['files'], got):
+                        exp = f[variant]
+                        if exp is None: good = g['content'] in ('none', 'normal')
+                        elif 'iconPath' in exp: good = exp['iconPath'].lstrip('./') in g['bg']
+                        else:
+                            h = exp['fontColor'].lstrip('#')
+                            good = g['content'] == json.dumps(chr(int(exp['fontCharacter'][1:], 16)), ensure_ascii=False) and g['color'] == f'rgb({int(h[0:2],16)}, {int(h[2:4],16)}, {int(h[4:6],16)})'
+                        bad += not good
+                check(f'{theme}: icon resolver = browser CSS cascade for {len(data["files"])} files × dark/light', bad == 0)
             check('no page errors', errors == [])
             b.close()
     finally:

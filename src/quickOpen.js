@@ -6,6 +6,7 @@ const vscode = require('vscode');
 const path = require('path');
 const FS = require('./fuzzyScorer');
 const FI = require('./fileIndex');
+const { FileIconImages } = require('./fileIconImages');
 
 const MAX_RESULTS = 200;
 const MAX_HISTORY = 50;
@@ -82,6 +83,7 @@ class QuickOpen {
     this.view = view;
     this.api = api;
     this.cache = new Map(); // root -> { entries, stale, promise }
+    this.icons = new FileIconImages(context, view);
     this.subs = new Map();
     for (const r of api.repositories) this.watch(r);
     context.subscriptions.push(
@@ -157,7 +159,8 @@ class QuickOpen {
       label: e.label,
       description: e.description,
       resourceUri: vscode.Uri.file(e.fsPath),
-      iconPath: vscode.ThemeIcon.File,
+      // image from the active file icon theme (works on hosts that don't derive icons from resourceUri)
+      iconPath: this.icons.iconFor(vscode.Uri.file(e.fsPath)),
       alwaysShow: true, // we filter and rank; Quick Pick only highlights
       buttons,
       entry: e,

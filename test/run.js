@@ -123,7 +123,7 @@ async function unitIcons() {
     assert.ok(css.includes(`@font-face { src: url('${IT.cssEscape('https://res/seti.woff')}') format('woff'); font-family: 'seti'`), 'font-face');
     assert.match(css, /\.show-file-icons \.file-icon::before \{ font-family: 'seti'; font-size: 150%; \}/);
     assert.match(css, /\.show-file-icons \.typescript-lang-file-icon\.file-icon::before[^{]*\{ color: #[0-9a-f]+; content: '\\E[0-9A-F]+'/i);
-    assert.match(css, /body\.vscode-light \.show-file-icons \.typescript-lang-file-icon\.file-icon::before/);
+    assert.match(css, /\.vscode-light \.show-file-icons \.typescript-lang-file-icon\.file-icon::before/);
     assert.ok(css.split('\n').length > 100);
   });
   await t('SVG theme → CSS: emQuad + background-image, name beats extension beats language', () => {
@@ -131,7 +131,7 @@ async function unitIcons() {
     const css = IT.buildIconThemeCss(t2.doc, (rel) => `https://res/${rel.replace('./', '')}`);
     assert.ok(css.includes(`.show-file-icons .package\\.json-name-file-icon.name-file-icon.json-ext-file-icon.ext-file-icon.file-icon::before { content: '\\2001'; background-image: url('${IT.cssEscape('https://res/icons/nodejs.svg')}');`), 'fileNames rule');
     assert.match(css, /\.test\\\.ts-ext-file-icon\.ts-ext-file-icon\.ext-file-icon\.file-icon::before/);
-    assert.ok(css.includes(`body.vscode-light .show-file-icons .markdown-lang-file-icon.file-icon::before { content: '\\2001'; background-image: url('${IT.cssEscape('https://res/icons/markdown_light.svg')}');`), 'light rule');
+    assert.ok(css.includes(`.vscode-light .show-file-icons .markdown-lang-file-icon.file-icon::before { content: '\\2001'; background-image: url('${IT.cssEscape('https://res/icons/markdown_light.svg')}');`), 'light rule');
   });
   await t('usesCurrentColor themes render as masks, like VS Code', () => {
     const css = IT.buildIconThemeCss({ usesCurrentColor: true, iconDefinitions: { f: { iconPath: 'f.svg' } }, file: 'f' }, (r) => r);
@@ -460,6 +460,7 @@ async function e2e() {
   const ctx = {
     subscriptions: [],
     extensionUri: Uri.file(path.join(__dirname, '..')),
+    globalStorageUri: Uri.file(path.join(base, 'globalStorage')),
     workspaceState: (() => { const m = new Map(); return { get: (k, d) => (m.has(k) ? m.get(k) : d), update: async (k, v) => m.set(k, v) }; })(),
   };
   const { view } = await ext.activate(ctx);
@@ -825,17 +826,46 @@ async function e2e() {
     assert.ok(qp.disposed);
   });
 
-  await t('Go to File: items use the file icon theme (resourceUri + ThemeIcon.File)', async () => {
+  await t('Go to File: items carry the file icon theme icon as an image (works without resourceUri support)', async () => {
     const qp = await openPicker();
     qp._type('OnlyInShown');
     const [item] = qp.visibleItems;
     assert.strictEqual(item.label, 'OnlyInShown.ts');
     assert.strictEqual(item.description, 'dirty/src');
     assert.strictEqual(item.resourceUri.fsPath, path.join(repos.dirty, 'src', 'OnlyInShown.ts'));
-    assert.strictEqual(item.iconPath, fake.vscode.ThemeIcon.File);
+    // Seti (font theme): the TypeScript glyph, converted to SVG in global storage, in Seti's colors
+    const seti = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'extensions', 'theme-seti', 'icons', 'vs-seti-icon-theme.json'), 'utf8'));
+    const tsDef = seti.iconDefinitions[seti.languageIds.typescript];
+    const tsLight = seti.iconDefinitions[seti.light.languageIds.typescript];
+    const darkSvg = fs.readFileSync(item.iconPath.dark.fsPath, 'utf8');
+    const lightSvg = fs.readFileSync(item.iconPath.light.fsPath, 'utf8');
+    assert.ok(item.iconPath.dark.fsPath.startsWith(path.join(base, 'globalStorage', 'file-icons')), 'written to global storage');
+    assert.match(darkSvg, new RegExp(`^<svg [^>]*width="16" height="22"[^>]*><path fill="${tsDef.fontColor}" d="M`));
+    assert.match(lightSvg, new RegExp(`fill="${tsLight.fontColor}"`), 'light theme variant');
+    const same = qp.visibleItems[0].iconPath;
+    qp._type('OnlyInShown.ts');
+    assert.strictEqual(qp.visibleItems[0].iconPath, same, 'cached per icon');
     assert.strictEqual(item.alwaysShow, true);
     assert.strictEqual(item.buttons[0].tooltip, 'Open to the Side');
     qp.hide();
+  });
+
+  await t('Go to File: image icon themes use the theme\'s own files; no theme → no icon', async () => {
+    await fake.vscode.workspace.getConfiguration('workbench').update('iconTheme', 'svg-icons');
+    let qp = await openPicker();
+    qp._type('OnlyInShown');
+    let { iconPath } = qp.visibleItems[0];
+    assert.strictEqual(iconPath.dark.fsPath, path.join(__dirname, 'fixtures', 'extensions', 'svg-icons', 'icons', 'typescript.svg'));
+    qp._type('README');
+    iconPath = qp.visibleItems.find((i) => i.label === 'README.md').iconPath;
+    assert.deepStrictEqual([path.basename(iconPath.dark.fsPath), path.basename(iconPath.light.fsPath)], ['markdown.svg', 'markdown_light.svg']);
+    qp.hide();
+    await fake.vscode.workspace.getConfiguration('workbench').update('iconTheme', null);
+    qp = await openPicker();
+    qp._type('OnlyInShown');
+    assert.strictEqual(qp.visibleItems[0].iconPath, undefined, 'icon theme "None": no icons, like Cmd+P');
+    qp.hide();
+    await fake.vscode.workspace.getConfiguration('workbench').update('iconTheme', 'vs-seti');
   });
 
   await t('Go to File: Cmd+P ranking (prefix > fuzzy, path queries, multi-word)', async () => {

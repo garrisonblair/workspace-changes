@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.1
+- Go to File: file type icons now show in Cursor and other editors based on older VS Code versions. Icons are resolved from the active file icon theme with the same rules as VS Code's CSS; font-based themes like Seti are converted to SVG images.
+
 ## 0.5.0
 - **Go to File in Shown Repositories** (`Cmd+Alt+P` / `Ctrl+Alt+P`): Cmd+P-style file search limited to the repos shown in the panel, with VS Code's Quick Open ranking, file icons, recently opened files, `:line:col` and open to the side.
 
