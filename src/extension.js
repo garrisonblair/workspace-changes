@@ -6,6 +6,7 @@ const F = require('./filter');
 const IT = require('./iconTheme');
 const PR = require('./pullRequest');
 const GM = require('./gitMenu');
+const { QuickOpen } = require('./quickOpen');
 
 const VIEW_ID = 'workspaceChanges.view';
 const CFG = 'workspaceChanges';
@@ -719,7 +720,10 @@ async function activate(context) {
   context.subscriptions.push(vscode.workspace.onDidOpenTextDocument((d) => { if (d.uri.scheme === 'file') view.refreshSoon(); }));
 
   registerCommands(context, view, api);
-  return { view };
+
+  const quickOpen = new QuickOpen(context, view, api);
+  context.subscriptions.push(vscode.commands.registerCommand('workspaceChanges.quickOpen', () => quickOpen.show()));
+  return { view, quickOpen };
 }
 
 function deactivate() {}

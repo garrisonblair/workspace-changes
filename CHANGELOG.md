@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.0
+- **Go to File in Shown Repositories** (`Cmd+Alt+P` / `Ctrl+Alt+P`): Cmd+P-style file search limited to the repos shown in the panel, with VS Code's Quick Open ranking, file icons, recently opened files, `:line:col` and open to the side.
+
 ## 0.4.1
 - Collapse All / Expand All is a single title-bar toggle, like the native views.
 

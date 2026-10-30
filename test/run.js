@@ -185,12 +185,18 @@ function makeVscode(workspaceRoot) {
 
   const vscode = {
     EventEmitter, Uri,
+    ThemeIcon: Object.assign(class { constructor(id) { this.id = id; } }, { File: { id: 'file' }, Folder: { id: 'folder' } }),
+    Position: class { constructor(line, character) { this.line = line; this.character = character; } },
+    Range: class { constructor(start, end) { this.start = start; this.end = end; } },
+    ViewColumn: { Active: -1, Beside: -2 },
     QuickPickItemKind: { Separator: -1, Default: 0 },
     ConfigurationTarget: { Global: 1, Workspace: 2 },
     extensions: { getExtension: () => null, all: fixtureExtensions(), onDidChange: new EventEmitter().event },
     env: { openExternal: async (u) => { ui.opened.push(u.toString()); return true; } },
     workspace: {
       workspaceFolders: [{ uri: Uri.file(workspaceRoot) }],
+      getWorkspaceFolder: (u) => ((u.fsPath + path.sep).startsWith(workspaceRoot + path.sep) ? { uri: Uri.file(workspaceRoot) } : undefined),
+      onDidCreateFiles: new EventEmitter().event, onDidDeleteFiles: new EventEmitter().event, onDidRenameFiles: new EventEmitter().event,
       textDocuments: [],
       asRelativePath: (u) => path.relative(workspaceRoot, u.fsPath || u),
       getConfiguration: (section) => {
@@ -205,6 +211,8 @@ function makeVscode(workspaceRoot) {
     },
     window: {
       registerWebviewViewProvider: (id, p) => { provider = { id, p }; return { dispose() {} }; },
+      activeTextEditor: undefined,
+      onDidChangeActiveTextEditor: (() => { const e = new EventEmitter(); ui.fireActiveEditor = (ed) => e.fire(ed); return e.event; })(),
       showErrorMessage: async (m) => { ui.errors.push(m); },
       showInformationMessage: async (m) => { ui.infos.push(m); const r = ui.nextInfo; ui.nextInfo = undefined; return r; },
       showWarningMessage: async (m) => { ui.warnings.push(m); ui.lastWarning = m; const r = ui.nextWarning; ui.nextWarning = undefined; return r; },
@@ -212,7 +220,15 @@ function makeVscode(workspaceRoot) {
       showQuickPick: async (items) => { ui.lastPickItems = items; return ui.nextPick ? ui.nextPick(items) : undefined; },
       createQuickPick: () => {
         const sel = new EventEmitter(); const hide = new EventEmitter();
-        const qp = { items: [], selectedItems: [], onDidChangeSelection: sel.event, onDidHide: hide.event, show() {}, dispose() {}, _select: (s) => { qp.selectedItems = s; sel.fire(s); } };
+        const val = new EventEmitter(); const acc = new EventEmitter(); const btn = new EventEmitter();
+        const qp = { items: [], selectedItems: [], activeItems: [], value: '', busy: false, shown: false, disposed: false,
+          onDidChangeSelection: sel.event, onDidHide: hide.event, onDidChangeValue: val.event, onDidAccept: acc.event, onDidTriggerItemButton: btn.event,
+          show() { qp.shown = true; }, hide() { qp.shown = false; hide.fire(); }, dispose() { qp.disposed = true; },
+          _select: (s) => { qp.selectedItems = s; sel.fire(s); },
+          _type: (v) => { qp.value = v; val.fire(v); },
+          _accept: (item) => { qp.activeItems = [item || qp.items.find((i) => i.kind !== -1)]; acc.fire(); },
+          _button: (item) => btn.fire({ item, button: item.buttons[0] }),
+          get visibleItems() { return qp.items.filter((i) => i.kind !== -1); } };
         ui.quickPicks.push(qp); return qp;
       },
       createInputBox: () => {
@@ -782,6 +798,169 @@ async function e2e() {
     fake.ui.nextPick = undefined;
   });
 
+  // ------------------------------------------------------------ Go to File in Shown Repositories
+  const showOnly = async (...names) => {
+    fake.config.criteria = [];
+    const all = (await view.evaluate()).map((r) => r.label);
+    fake.config.hiddenRepositories = all.filter((l) => !names.includes(l));
+    assert.deepStrictEqual((await labels()).sort(), names.slice().sort());
+  };
+  const openPicker = async () => fake.commands.get('workspaceChanges.quickOpen')();
+  const files = (qp) => qp.visibleItems.map((i) => `${i.description}/${i.label}`);
+
+  await t('Go to File: searches only the repos shown in the panel', async () => {
+    fs.writeFileSync(path.join(repos.dirty, 'src', 'OnlyInShown.ts'), 'x');
+    fs.writeFileSync(path.join(repos.ahead, 'OnlyInHidden.ts'), 'x');
+    sh(repos.ahead, 'git add OnlyInHidden.ts && git commit -qm hidden');
+    apiRepo(repos.dirty)._reload(); apiRepo(repos.ahead)._reload();
+    await showOnly('dirty', 'cli');
+    const qp = await openPicker();
+    assert.match(qp.placeholder, /in 2 shown repositories/);
+    assert.strictEqual(qp.busy, false);
+    qp._type('Only');
+    assert.deepStrictEqual(files(qp), ['dirty/src/OnlyInShown.ts']);
+    qp._type('README');
+    assert.deepStrictEqual(files(qp).sort(), ['cli/README.md', 'dirty/README.md']);
+    qp.hide();
+    assert.ok(qp.disposed);
+  });
+
+  await t('Go to File: items use the file icon theme (resourceUri + ThemeIcon.File)', async () => {
+    const qp = await openPicker();
+    qp._type('OnlyInShown');
+    const [item] = qp.visibleItems;
+    assert.strictEqual(item.label, 'OnlyInShown.ts');
+    assert.strictEqual(item.description, 'dirty/src');
+    assert.strictEqual(item.resourceUri.fsPath, path.join(repos.dirty, 'src', 'OnlyInShown.ts'));
+    assert.strictEqual(item.iconPath, fake.vscode.ThemeIcon.File);
+    assert.strictEqual(item.alwaysShow, true);
+    assert.strictEqual(item.buttons[0].tooltip, 'Open to the Side');
+    qp.hide();
+  });
+
+  await t('Go to File: Cmd+P ranking (prefix > fuzzy, path queries, multi-word)', async () => {
+    for (const f of ['src/components/Header.tsx', 'src/components/HeaderMenu.tsx', 'src/hooks/useHeader.ts', 'docs/header-notes.md']) {
+      fs.mkdirSync(path.dirname(path.join(repos.dirty, f)), { recursive: true });
+      fs.writeFileSync(path.join(repos.dirty, f), 'x');
+    }
+    apiRepo(repos.dirty)._reload();
+    const qp = await openPicker();
+    qp._type('Header');
+    assert.deepStrictEqual(files(qp).slice(0, 2), ['dirty/src/components/Header.tsx', 'dirty/src/components/HeaderMenu.tsx'], 'shortest prefix match first');
+    qp._type('hooks/head');
+    assert.strictEqual(files(qp)[0], 'dirty/src/hooks/useHeader.ts', 'path query');
+    qp._type('comp menu');
+    assert.deepStrictEqual(files(qp), ['dirty/src/components/HeaderMenu.tsx'], 'space-separated pieces must all match');
+    qp._type('HeaderQ');
+    assert.deepStrictEqual(files(qp), []);
+    qp._type('"r-no"');
+    assert.deepStrictEqual(files(qp), ['dirty/docs/header-notes.md'], 'quotes = contiguous match');
+    qp.hide();
+  });
+
+  await t('Go to File: respects .gitignore, files.exclude/search.exclude, and skips deleted files', async () => {
+    fs.writeFileSync(path.join(repos.dirty, '.gitignore'), 'secret.log\n');
+    fs.writeFileSync(path.join(repos.dirty, 'secret.log'), 'x');
+    fs.mkdirSync(path.join(repos.dirty, 'node_modules', 'pkg'), { recursive: true });
+    fs.writeFileSync(path.join(repos.dirty, 'node_modules', 'pkg', 'index.js'), 'x');
+    fs.mkdirSync(path.join(repos.dirty, 'build'), { recursive: true });
+    fs.writeFileSync(path.join(repos.dirty, 'build', 'out.js'), 'x');
+    fs.unlinkSync(path.join(repos.dirty, 'README.md'));
+    apiRepo(repos.dirty)._reload();
+    await fake.vscode.workspace.getConfiguration('search').update('exclude', { '**/node_modules': true, '**/build': { when: '$(basename).ts' } });
+    await fake.vscode.workspace.getConfiguration('files').update('exclude', { '**/build': true, '**/.git': true });
+    const qp = await openPicker();
+    qp._type('secret'); assert.deepStrictEqual(files(qp), [], '.gitignore');
+    qp._type('index.js'); assert.deepStrictEqual(files(qp), [], 'search.exclude');
+    qp._type('out.js'); assert.deepStrictEqual(files(qp), [], 'files.exclude');
+    qp._type('README'); assert.strictEqual(files(qp)[0], 'cli/README.md'); assert.ok(!files(qp).includes('dirty/README.md'), 'deleted file not offered');
+    qp._type('.gitignore'); assert.deepStrictEqual(files(qp), ['dirty/.gitignore'], 'untracked, not ignored');
+    qp.hide();
+    sh(repos.dirty, 'git checkout -- README.md'); apiRepo(repos.dirty)._reload();
+  });
+
+  await t('Go to File: opens like Cmd+P (preview, :line:col, open to the side)', async () => {
+    let qp = await openPicker();
+    qp._type('OnlyInShown:12:3');
+    fake.executed.length = 0;
+    qp._accept();
+    await wait(5);
+    let call = calls('vscode.open')[0];
+    assert.strictEqual(call.args[0].fsPath, path.join(repos.dirty, 'src', 'OnlyInShown.ts'));
+    assert.deepStrictEqual([call.args[1].preview, call.args[1].selection.start.line, call.args[1].selection.start.character], [true, 11, 2]);
+    assert.strictEqual(qp.shown, false, 'picker closes');
+    qp = await openPicker();
+    qp._type('HeaderMenu');
+    fake.executed.length = 0;
+    qp._button(qp.visibleItems[0]);
+    await wait(5);
+    call = calls('vscode.open')[0];
+    assert.deepStrictEqual([call.args[1].viewColumn, call.args[1].preview], [fake.vscode.ViewColumn.Beside, false]);
+    qp.hide();
+  });
+
+  await t('Go to File: recently opened files first, only from shown repos', async () => {
+    fake.ui.fireActiveEditor({ document: { uri: Uri.file(path.join(repos.ahead, 'OnlyInHidden.ts')) } });
+    const qp = await openPicker();
+    assert.strictEqual(qp.items[0].label, 'recently opened');
+    assert.deepStrictEqual(files(qp), ['dirty/src/components/HeaderMenu.tsx', 'dirty/src/OnlyInShown.ts'], 'most recent first; hidden repo file left out');
+    qp._type('Header');
+    assert.deepStrictEqual(qp.items.filter((i) => i.kind === -1).map((i) => i.label), ['recently opened', 'file results']);
+    assert.strictEqual(files(qp)[0], 'dirty/src/components/HeaderMenu.tsx');
+    qp.hide();
+  });
+
+  await t('Go to File: new files show up (index refreshes after repo changes)', async () => {
+    let qp = await openPicker();
+    qp._type('BrandNew'); assert.deepStrictEqual(files(qp), []); qp.hide();
+    fs.writeFileSync(path.join(repos.nested, 'BrandNew.ts'), 'x');
+    apiRepo(repos.nested)._reload();
+    qp = await openPicker();
+    qp._type('BrandNew'); assert.deepStrictEqual(files(qp), ['cli/BrandNew.ts']); qp.hide();
+  });
+
+  await t('Go to File: nothing shown → offers the normal Cmd+P', async () => {
+    fake.config.criteria = ['changes'];
+    fake.config.hiddenRepositories = (await view.evaluate()).map((r) => r.label);
+    fake.ui.nextInfo = 'Search All Files';
+    fake.executed.length = 0;
+    await openPicker();
+    assert.match(fake.ui.infos.at(-1), /No repositories are shown/);
+    assert.strictEqual(calls('workbench.action.quickOpen').length, 1);
+    fake.config.hiddenRepositories = [];
+    fake.config.criteria = ['changes', 'nonDefaultBranch'];
+  });
+
+  await t('Go to File: fast path (prefilter, Map cache, top-k) ranks exactly like plain VS Code scoring', () => {
+    const { rank } = require('../src/quickOpen');
+    const FS = require('../src/fuzzyScorer');
+    const acc = { getItemLabel: (e) => e.label, getItemDescription: (e) => e.description, getItemPath: (e) => e.fsPath };
+    const segs = ['src', 'components', 'layout', 'features', 'onboarding', 'hooks', 'test', 'packages', 'api', 'routes', 'pages', 'utils'];
+    const words = ['Header', 'Footer', 'useAuth', 'Button', 'Modal', 'Invoice', 'Billing', 'Session', 'Report', 'index', 'config'];
+    const exts = ['.ts', '.tsx', '.test.ts', '.css', '.md', '.json'];
+    let seed = 42;
+    const rnd = (n) => { seed = (seed * 16807) % 2147483647; return seed % n; };
+    const entries = [];
+    for (let i = 0; i < 4000; i++) {
+      const d = ['repo' + rnd(12), ...Array.from({ length: 1 + rnd(4) }, () => segs[rnd(segs.length)])].join('/');
+      const label = words[rnd(words.length)] + (rnd(3) ? String(rnd(40)) : '') + exts[rnd(exts.length)];
+      entries.push({ label, description: d, fsPath: `/ws/${d}/${label}` });
+    }
+    for (const q of ['h', 'Head', 'header.tsx', 'comp/head', 'use auth', 'repo3/hooks/use', '"invoice"', 'pages/inv', 'Bill12', 'x', 'idx']) {
+      const p = FS.prepareQuery(q);
+      const cache = Object.create(null);
+      const ref = entries.filter((e) => FS.scoreItemFuzzy(e, p, true, acc, cache).score > 0)
+        .sort((a, b) => FS.compareItemsByFuzzyScore(a, b, p, true, acc, cache)).slice(0, 100);
+      assert.deepStrictEqual(rank(entries, q, 100), ref, q);
+    }
+  });
+
+  await t('Go to File: command, shortcut and panel menu entry are contributed', () => {
+    assert.ok(pkg.contributes.commands.some((c) => c.command === 'workspaceChanges.quickOpen'));
+    assert.deepStrictEqual(pkg.contributes.keybindings, [{ command: 'workspaceChanges.quickOpen', key: 'ctrl+alt+p', mac: 'cmd+alt+p' }]);
+    assert.ok(pkg.contributes.menus['view/title'].some((e) => e.command === 'workspaceChanges.quickOpen'));
+  });
+
   await t('no unexpected errors surfaced', () => assert.deepStrictEqual(fake.ui.errors, []));
 
   for (const d of ctx.subscriptions) d.dispose && d.dispose();
@@ -789,6 +968,11 @@ async function e2e() {
 }
 
 (async () => {
+  console.log('fuzzyScorer.js (port of VS Code Quick Open scorer)');
+  const vs = cp.spawnSync(process.execPath, [path.join(__dirname, 'vscode-fuzzyScorer.js')], { encoding: 'utf8' });
+  process.stdout.write(vs.stdout + vs.stderr);
+  if (vs.status !== 0) throw new Error('VS Code fuzzyScorer tests failed');
+  passed++;
   await unit();
   await unitIcons();
   await e2e();

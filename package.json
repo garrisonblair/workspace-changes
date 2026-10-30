@@ -2,7 +2,7 @@
   "name": "workspace-changes",
   "displayName": "Workspace Changes",
   "description": "A Source Control panel for multi-repo workspaces: shows only the repos you care about (changes, non-default branch, ahead/behind), each with its own native-looking commit box, file icons and Git menus.",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "publisher": "garrisonblair",
   "author": {
     "name": "Garrison Blair"
@@ -68,6 +68,12 @@
       ]
     },
     "commands": [
+      {
+        "command": "workspaceChanges.quickOpen",
+        "title": "Go to File in Shown Repositories...",
+        "category": "Workspace Changes",
+        "icon": "$(go-to-file)"
+      },
       {
         "command": "workspaceChanges.chooseCriteria",
         "title": "Choose Which Repositories to Show…",
@@ -548,6 +554,11 @@
           "command": "workspaceChanges.manageHidden",
           "when": "view == workspaceChanges.view",
           "group": "2_hidden"
+        },
+        {
+          "command": "workspaceChanges.quickOpen",
+          "when": "view == workspaceChanges.view",
+          "group": "0_search@1"
         }
       ],
       "webview/context": [
@@ -1262,6 +1273,13 @@
       {
         "id": "workspaceChanges.stash",
         "label": "Stash"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "workspaceChanges.quickOpen",
+        "key": "ctrl+alt+p",
+        "mac": "cmd+alt+p"
       }
     ]
   }

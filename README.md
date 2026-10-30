@@ -33,6 +33,15 @@ So commit hooks (pre-commit, commit-msg, husky, lint-staged…) run, failures sh
 - **Merge / Staged / Changes groups** with counts. Hover a row for open file, discard, stage / unstage; click a file to open its diff. Right-click repos, groups and files for the same actions.
 - Click a repo header to collapse it. Clean repos with nothing to do start collapsed.
 
+## Go to File in shown repositories
+
+**`Cmd+Alt+P`** (`Ctrl+Alt+P` on Windows/Linux), or the panel's `…` menu: a Cmd+P-style file picker that only searches the repositories currently shown in the panel.
+
+- Same ranking as Cmd+P: a port of VS Code's own Quick Open scorer, checked against VS Code's own test suite. Prefix and camel-case matches, path queries (`comp/head`), several words (`use auth`), `"quotes"` for exact matches.
+- Your file icon theme's icons, recently opened files first, `file.ts:12:4` to jump to a line, the split button to open to the side.
+- Lists what Cmd+P would: tracked and untracked files, minus `.gitignore`d files, `files.exclude` and `search.exclude`.
+- Change the shortcut in Keyboard Shortcuts (search *Go to File in Shown Repositories*); bind it to `Cmd+P` to replace the normal picker.
+
 ## Filters (all live)
 
 | Button | What it does |
