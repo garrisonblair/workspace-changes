@@ -60,7 +60,7 @@ if (failed) process.exitCode = 1;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wc-fuzzy-'));
 const file = path.join(tmp, 'fuzzyScorer.test.mts');
 fs.writeFileSync(file, prelude + src + runner);
-const r = cp.spawnSync(process.execPath, ['--no-warnings', file], { encoding: 'utf8' });
+const r = cp.spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', file], { encoding: 'utf8' });
 process.stdout.write(r.stdout);
 process.stderr.write(r.stderr);
 fs.rmSync(tmp, { recursive: true, force: true });
