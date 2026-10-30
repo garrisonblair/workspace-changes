@@ -1,0 +1,21 @@
+{
+ "name": "css",
+ "contributes": {
+  "languages": [
+   {
+    "id": "css",
+    "aliases": [
+     "CSS",
+     "css"
+    ],
+    "extensions": [
+     ".css"
+    ],
+    "mimetypes": [
+     "text/css"
+    ],
+    "configuration": "./language-configuration.json"
+   }
+  ]
+ }
+}

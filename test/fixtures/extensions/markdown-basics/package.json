@@ -1,0 +1,33 @@
+{
+ "name": "markdown",
+ "contributes": {
+  "languages": [
+   {
+    "id": "markdown",
+    "aliases": [
+     "Markdown",
+     "markdown"
+    ],
+    "extensions": [
+     ".md",
+     ".mkd",
+     ".mkdn",
+     ".mdwn",
+     ".mdown",
+     ".markdown",
+     ".markdn",
+     ".mdtxt",
+     ".mdtext",
+     ".litcoffee",
+     ".ron",
+     ".ronn",
+     ".workbook"
+    ],
+    "filenamePatterns": [
+     "**/.cursor/**/*.mdc"
+    ],
+    "configuration": "./language-configuration.json"
+   }
+  ]
+ }
+}

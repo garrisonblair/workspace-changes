@@ -1,0 +1,19 @@
+// Material-style theme: SVG iconPath definitions, comments and trailing commas (JSONC)
+{
+  "iconDefinitions": {
+    "file": { "iconPath": "./icons/file.svg" },
+    "typescript": { "iconPath": "./icons/typescript.svg" },
+    "react_ts": { "iconPath": "./icons/react_ts.svg" },
+    "test-ts": { "iconPath": "./icons/test-ts.svg" },
+    "nodejs": { "iconPath": "./icons/nodejs.svg" },
+    "docker": { "iconPath": "./icons/docker.svg" },
+    "markdown": { "iconPath": "./icons/markdown.svg" },
+    "markdown_light": { "iconPath": "./icons/markdown_light.svg" },
+    "css": { "iconPath": "./icons/css.svg" },
+  },
+  "file": "file",
+  "fileExtensions": { "test.ts": "test-ts", "tsx": "react_ts" },
+  "fileNames": { "package.json": "nodejs", "dockerfile": "docker" },
+  "languageIds": { "typescript": "typescript", "markdown": "markdown", "css": "css" },
+  "light": { "languageIds": { "markdown": "markdown_light" } },
+}

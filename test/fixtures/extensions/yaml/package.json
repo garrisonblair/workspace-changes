@@ -1,0 +1,43 @@
+{
+ "name": "yaml",
+ "contributes": {
+  "languages": [
+   {
+    "id": "dockercompose",
+    "aliases": [
+     "Compose",
+     "compose"
+    ],
+    "filenamePatterns": [
+     "compose.yml",
+     "compose.yaml",
+     "compose.*.yml",
+     "compose.*.yaml",
+     "*docker*compose*.yml",
+     "*docker*compose*.yaml"
+    ],
+    "configuration": "./language-configuration.json"
+   },
+   {
+    "id": "yaml",
+    "aliases": [
+     "YAML",
+     "yaml"
+    ],
+    "extensions": [
+     ".yaml",
+     ".yml",
+     ".eyaml",
+     ".eyml",
+     ".cff",
+     ".yaml-tmlanguage",
+     ".yaml-tmpreferences",
+     ".yaml-tmtheme",
+     ".winget"
+    ],
+    "firstLine": "^#cloud-config",
+    "configuration": "./language-configuration.json"
+   }
+  ]
+ }
+}

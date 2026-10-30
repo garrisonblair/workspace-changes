@@ -1,0 +1,41 @@
+# Publishes to the VS Code Marketplace and Open VSX when you push a tag like v0.4.2.
+#
+# One-time setup (see README > Publishing):
+#  - VS Code Marketplace: Trusted Publishing policy for this repo + workflow (no secret needed).
+#  - Open VSX (used by Cursor, VSCodium...): repository secret OVSX_TOKEN.
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # create the GitHub release
+  id-token: write   # Marketplace Trusted Publishing (OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Tag matches package.json version
+        run: |
+          v=$(node -p "require('./package.json').version")
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != package.json v$v"; exit 1; }
+      - run: node scripts/gen-manifest.js --check
+      - run: node test/run.js
+      - name: Package
+        run: npx --yes @vscode/vsce package -o workspace-changes.vsix
+      - name: Publish to VS Code Marketplace
+        run: npx --yes @vscode/vsce publish --oidc --packagePath workspace-changes.vsix
+      - name: Publish to Open VSX
+        if: ${{ env.OVSX_TOKEN != '' }}
+        run: npx --yes ovsx publish workspace-changes.vsix -p "$OVSX_TOKEN"
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" workspace-changes.vsix --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md"

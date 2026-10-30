@@ -1,0 +1,8 @@
+# keep the published package small: only src/, media/, images/icon.png, README, CHANGELOG, LICENSE
+.github/**
+.vscode/**
+test/**
+scripts/**
+images/screenshot*.png
+**/*.py
+.gitignore

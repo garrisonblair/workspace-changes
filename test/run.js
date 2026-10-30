@@ -1,0 +1,796 @@
+'use strict';
+// Test harness: unit tests for filter.js + an end-to-end run of extension.js
+// against a fake `vscode` module and a fake git API backed by real git repos.
+const assert = require('assert');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const cp = require('child_process');
+const Module = require('module');
+
+let passed = 0;
+const t = (name, fn) => Promise.resolve().then(fn).then(() => { passed++; console.log('  ✓', name); });
+
+// ---------------------------------------------------------------- unit tests
+const F = require('../src/filter');
+
+async function unit() {
+  console.log('filter.js');
+  const st = (o) => Object.assign({ HEAD: { name: 'main', upstream: { name: 'main', remote: 'origin' }, ahead: 0, behind: 0 }, mergeChanges: [], indexChanges: [], workingTreeChanges: [] }, o);
+
+  await t('clean repo on default is filtered out', () => {
+    const f = F.repoFacts(st({}), 'main', ['main']);
+    assert.strictEqual(F.matchesCriteria(f, ['changes', 'nonDefaultBranch']), false);
+  });
+  await t('dirty repo is shown', () => {
+    const f = F.repoFacts(st({ workingTreeChanges: [{}] }), 'main', ['main']);
+    assert.strictEqual(F.matchesCriteria(f, ['changes']), true);
+    assert.strictEqual(f.changes, 1);
+  });
+  await t('untrackedChanges (separate mode) counted', () => {
+    assert.strictEqual(F.changeCount(st({ untrackedChanges: [{}, {}] })), 2);
+  });
+  await t('non-default branch shown, detected default wins over fallback', () => {
+    const s = st({ HEAD: { name: 'master', upstream: {} } });
+    assert.strictEqual(F.repoFacts(s, 'main', ['main', 'master']).isDefault, false);
+    assert.strictEqual(F.repoFacts(s, undefined, ['main', 'master']).isDefault, true);
+  });
+  await t('detached HEAD counts as non-default', () => {
+    const f = F.repoFacts(st({ HEAD: { commit: 'abc1234def' } }), 'main', ['main']);
+    assert.strictEqual(f.isDefault, false);
+    assert.match(F.branchLabel(f), /detached @ abc1234/);
+  });
+  await t('unpushed / behind criteria', () => {
+    const ahead = F.repoFacts(st({ HEAD: { name: 'main', upstream: {}, ahead: 2, behind: 0 } }), 'main', []);
+    const unpub = F.repoFacts(st({ HEAD: { name: 'feat/x' } }), 'main', []);
+    const behind = F.repoFacts(st({ HEAD: { name: 'main', upstream: {}, ahead: 0, behind: 3 } }), 'main', []);
+    assert.ok(F.matchesCriteria(ahead, ['unpushed']));
+    assert.ok(F.matchesCriteria(unpub, ['unpushed']));
+    assert.ok(!F.matchesCriteria(behind, ['unpushed']));
+    assert.ok(F.matchesCriteria(behind, ['behind']));
+    assert.strictEqual(F.branchLabel(ahead), 'main ↑2');
+    assert.strictEqual(F.branchLabel(unpub), 'feat/x (unpublished)');
+  });
+  await t('empty criteria shows everything', () => {
+    assert.ok(F.matchesCriteria(F.repoFacts(st({}), 'main', []), []));
+  });
+  await t('text filter: OR terms, ! excludes, branch matches', () => {
+    assert.ok(F.matchesText('', ['api']));
+    assert.ok(F.matchesText('api web', ['web-app']));
+    assert.ok(!F.matchesText('api web', ['billing']));
+    assert.ok(!F.matchesText('!legacy', ['legacy-api']));
+    assert.ok(F.matchesText('!legacy', ['api']));
+    assert.ok(F.matchesText('auth', ['api', 'feat/auth']));
+    assert.ok(F.matchesText('API, Web', ['api-gateway']));
+  });
+  await t('hidden globs', () => {
+    assert.ok(F.isHidden(['docs'], 'docs', 'docs'));
+    assert.ok(F.isHidden(['legacy-*'], 'legacy-billing', 'x'));
+    assert.ok(F.isHidden(['tools/*'], 'cli', 'tools/cli'));
+    assert.ok(!F.isHidden(['legacy-*'], 'billing', 'billing'));
+  });
+}
+
+// ---------------------------------------------------------------- icon theme + PR unit tests
+const IT = require('../src/iconTheme');
+const PR = require('../src/pullRequest');
+const FIX = path.join(__dirname, 'fixtures', 'extensions');
+const fixtureExtensions = () => fs.readdirSync(FIX).map((d) => ({
+  id: `vscode.${d}`, extensionPath: path.join(FIX, d), extensionUri: { fsPath: path.join(FIX, d) },
+  packageJSON: JSON.parse(fs.readFileSync(path.join(FIX, d, 'package.json'), 'utf8')),
+}));
+
+async function unitIcons() {
+  console.log('iconTheme.js (real Seti theme + VS Code built-in languages)');
+  const exts = fixtureExtensions();
+  const langs = new IT.LanguageRegistry(exts, {});
+
+  await t('language detection like VS Code (extensions, filenames, patterns)', () => {
+    const cases = {
+      '/r/src/a.ts': 'typescript', '/r/App.tsx': 'typescriptreact', '/r/x.js': 'javascript', '/r/package.json': 'json',
+      '/r/tsconfig.json': 'jsonc', '/r/README.md': 'markdown', '/r/Dockerfile': 'dockerfile', '/r/api.Dockerfile': 'dockerfile',
+      '/r/compose.yaml': 'dockercompose', '/r/ci.yml': 'yaml', '/r/run.sh': 'shellscript', '/r/.bashrc': 'shellscript',
+      '/r/main.py': 'python', '/r/notes.txt': null, '/r/LICENSE': null,
+    };
+    for (const [p, id] of Object.entries(cases)) assert.strictEqual(langs.languageFor(p), id, p);
+  });
+  await t('files.associations override built-ins (pattern on name and on path)', () => {
+    const l = new IT.LanguageRegistry(exts, { '*.foo': 'yaml', '**/config/*.json': 'jsonc', 'Makefile.local': 'shellscript' });
+    assert.strictEqual(l.languageFor('/r/x.foo'), 'yaml');
+    assert.strictEqual(l.languageFor('/r/app/config/a.json'), 'jsonc');
+    assert.strictEqual(l.languageFor('/r/app/a.json'), 'json');
+    assert.strictEqual(l.languageFor('/r/Makefile.local'), 'shellscript');
+  });
+  await t('getIconClasses matches VS Code', () => {
+    assert.deepStrictEqual(IT.getIconClasses('/repo/src/foo.test.ts', 'typescript'),
+      ['file-icon', 'src-name-dir-icon', 'foo.test.ts-name-file-icon', 'name-file-icon', 'test.ts-ext-file-icon', 'ts-ext-file-icon', 'ext-file-icon', 'typescript-lang-file-icon']);
+    assert.deepStrictEqual(IT.getIconClasses('/Dockerfile', 'dockerfile'),
+      ['file-icon', 'dockerfile-name-file-icon', 'name-file-icon', 'ext-file-icon', 'dockerfile-lang-file-icon']);
+    assert.ok(IT.getIconClasses('/a/my file.md', null).includes('my/file.md-name-file-icon'), 'whitespace escaped like VS Code');
+  });
+  await t('loads the active theme by id from installed extensions (JSONC ok)', () => {
+    const seti = IT.loadIconTheme(exts, 'vs-seti');
+    assert.ok(seti.doc.iconDefinitions._default);
+    assert.strictEqual(path.basename(seti.dir), 'icons');
+    const svg = IT.loadIconTheme(exts, 'svg-icons');
+    assert.ok(svg.doc.iconDefinitions.typescript, 'parsed JSONC with comments + trailing commas');
+    assert.strictEqual(IT.loadIconTheme(exts, null), null, 'no icon theme');
+    assert.strictEqual(IT.loadIconTheme(exts, 'not-installed'), null);
+  });
+  await t('Seti → CSS: @font-face, default size, glyph + color rules, light variants', () => {
+    const seti = IT.loadIconTheme(exts, 'vs-seti');
+    const css = IT.buildIconThemeCss(seti.doc, (rel) => `https://res/${rel.replace('./', '')}`);
+    assert.ok(css.includes(`@font-face { src: url('${IT.cssEscape('https://res/seti.woff')}') format('woff'); font-family: 'seti'`), 'font-face');
+    assert.match(css, /\.show-file-icons \.file-icon::before \{ font-family: 'seti'; font-size: 150%; \}/);
+    assert.match(css, /\.show-file-icons \.typescript-lang-file-icon\.file-icon::before[^{]*\{ color: #[0-9a-f]+; content: '\\E[0-9A-F]+'/i);
+    assert.match(css, /body\.vscode-light \.show-file-icons \.typescript-lang-file-icon\.file-icon::before/);
+    assert.ok(css.split('\n').length > 100);
+  });
+  await t('SVG theme → CSS: emQuad + background-image, name beats extension beats language', () => {
+    const t2 = IT.loadIconTheme(exts, 'svg-icons');
+    const css = IT.buildIconThemeCss(t2.doc, (rel) => `https://res/${rel.replace('./', '')}`);
+    assert.ok(css.includes(`.show-file-icons .package\\.json-name-file-icon.name-file-icon.json-ext-file-icon.ext-file-icon.file-icon::before { content: '\\2001'; background-image: url('${IT.cssEscape('https://res/icons/nodejs.svg')}');`), 'fileNames rule');
+    assert.match(css, /\.test\\\.ts-ext-file-icon\.ts-ext-file-icon\.ext-file-icon\.file-icon::before/);
+    assert.ok(css.includes(`body.vscode-light .show-file-icons .markdown-lang-file-icon.file-icon::before { content: '\\2001'; background-image: url('${IT.cssEscape('https://res/icons/markdown_light.svg')}');`), 'light rule');
+  });
+  await t('usesCurrentColor themes render as masks, like VS Code', () => {
+    const css = IT.buildIconThemeCss({ usesCurrentColor: true, iconDefinitions: { f: { iconPath: 'f.svg' } }, file: 'f' }, (r) => r);
+    assert.match(css, /background-color: currentColor; background-image: none; mask: url\('f\\\.svg'\)/);
+  });
+  await t('CSS.escape port', () => {
+    assert.strictEqual(IT.cssEscape('a.b'), 'a\\.b');
+    assert.strictEqual(IT.cssEscape('1x'), '\\31 x');
+    assert.strictEqual(IT.cssEscape('c++'), 'c\\+\\+');
+    assert.strictEqual(IT.cssEscape('-'), '\\-');
+  });
+
+  console.log('pullRequest.js');
+  await t('remote parsing + create-PR URLs per host', () => {
+    assert.deepStrictEqual(PR.parseRemote('git@github.com:acme/front.git'), { kind: 'github', host: 'github.com', path: 'acme/front' });
+    assert.deepStrictEqual(PR.parseRemote('https://user@github.example.com/acme/front'), { kind: 'github', host: 'github.example.com', path: 'acme/front' });
+    assert.strictEqual(PR.createPullRequestUrl('git@github.com:acme/front.git', 'feat/x', 'main'), 'https://github.com/acme/front/compare/main...feat/x?expand=1');
+    assert.strictEqual(PR.createPullRequestUrl('ssh://git@gitlab.com:2222/grp/sub/app.git', 'feat/x', 'main'),
+      'https://gitlab.com/grp/sub/app/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Fx&merge_request%5Btarget_branch%5D=main');
+    assert.strictEqual(PR.createPullRequestUrl('git@bitbucket.org:team/repo.git', 'fix', 'main'), 'https://bitbucket.org/team/repo/pull-requests/new?source=fix&dest=main');
+    assert.strictEqual(PR.createPullRequestUrl('git@ssh.dev.azure.com:v3/org/proj/repo', 'b', 'main'), 'https://dev.azure.com/org/proj/_git/repo/pullrequestcreate?sourceRef=b&targetRef=main');
+    assert.strictEqual(PR.createPullRequestUrl('https://org.visualstudio.com/DefaultCollection/proj/_git/repo', 'b'), 'https://dev.azure.com/org/proj/_git/repo/pullrequestcreate?sourceRef=b');
+    assert.strictEqual(PR.createPullRequestUrl('/local/path/repo.git', 'b', 'main'), null);
+  });
+}
+
+// ---------------------------------------------------------------- fake vscode
+
+class EventEmitter {
+  constructor() { this.l = new Set(); this.event = (fn) => { this.l.add(fn); return { dispose: () => this.l.delete(fn) }; }; }
+  fire(v) { for (const fn of [...this.l]) fn(v); }
+  dispose() { this.l.clear(); }
+}
+class Uri {
+  constructor(fsPath, scheme = 'file', query = '') { this.fsPath = fsPath; this.scheme = scheme; this.query = query; this.path = fsPath.split(path.sep).join('/'); }
+  static file(p) { return new Uri(p); }
+  static joinPath(u, ...p) { return new Uri(path.join(u.fsPath, ...p)); }
+  static parse(s) { const u = new Uri(s, s.split(':')[0]); u.external = s; return u; }
+  toString() { return this.external || `${this.scheme}://${this.fsPath}${this.query ? '?' + this.query : ''}`; }
+}
+
+function makeVscode(workspaceRoot) {
+  const config = { criteria: ['changes', 'nonDefaultBranch'], defaultBranchNames: ['main', 'master'], hiddenRepositories: [], createPullRequest: 'auto' };
+  const sections = { workspaceChanges: config, git: {}, workbench: { iconTheme: 'vs-seti' }, files: { associations: {} } };
+  const configEmitter = new EventEmitter();
+  const commands = new Map();
+  const executed = [];
+  const context = new Map();
+  const ui = { quickPicks: [], inputBoxes: [], errors: [], infos: [], warnings: [], opened: [] };
+  let provider;
+
+  const vscode = {
+    EventEmitter, Uri,
+    QuickPickItemKind: { Separator: -1, Default: 0 },
+    ConfigurationTarget: { Global: 1, Workspace: 2 },
+    extensions: { getExtension: () => null, all: fixtureExtensions(), onDidChange: new EventEmitter().event },
+    env: { openExternal: async (u) => { ui.opened.push(u.toString()); return true; } },
+    workspace: {
+      workspaceFolders: [{ uri: Uri.file(workspaceRoot) }],
+      textDocuments: [],
+      asRelativePath: (u) => path.relative(workspaceRoot, u.fsPath || u),
+      getConfiguration: (section) => {
+        const store = sections[section || ''] || (sections[section] = {});
+        return {
+          get: (k, d) => (k in store ? store[k] : d),
+          update: async (k, v) => { store[k] = v; configEmitter.fire({ affectsConfiguration: (s) => s === section || s === `${section}.${k}` }); },
+        };
+      },
+      onDidChangeConfiguration: configEmitter.event,
+      onDidOpenTextDocument: new EventEmitter().event,
+    },
+    window: {
+      registerWebviewViewProvider: (id, p) => { provider = { id, p }; return { dispose() {} }; },
+      showErrorMessage: async (m) => { ui.errors.push(m); },
+      showInformationMessage: async (m) => { ui.infos.push(m); const r = ui.nextInfo; ui.nextInfo = undefined; return r; },
+      showWarningMessage: async (m) => { ui.warnings.push(m); ui.lastWarning = m; const r = ui.nextWarning; ui.nextWarning = undefined; return r; },
+      showInputBox: async (o) => { ui.lastInputOpts = o; return ui.nextInput; },
+      showQuickPick: async (items) => { ui.lastPickItems = items; return ui.nextPick ? ui.nextPick(items) : undefined; },
+      createQuickPick: () => {
+        const sel = new EventEmitter(); const hide = new EventEmitter();
+        const qp = { items: [], selectedItems: [], onDidChangeSelection: sel.event, onDidHide: hide.event, show() {}, dispose() {}, _select: (s) => { qp.selectedItems = s; sel.fire(s); } };
+        ui.quickPicks.push(qp); return qp;
+      },
+      createInputBox: () => {
+        const ch = new EventEmitter(); const acc = new EventEmitter(); const hide = new EventEmitter();
+        const box = { value: '', onDidChangeValue: ch.event, onDidAccept: acc.event, onDidHide: hide.event, show() {}, dispose() {},
+          hide() { hide.fire(); }, _type: (v) => { box.value = v; ch.fire(v); }, _accept: () => acc.fire() };
+        ui.inputBoxes.push(box); return box;
+      },
+      createTerminal: (o) => ({ show() { ui.terminal = o; } }),
+    },
+    commands: {
+      registerCommand: (id, fn) => { commands.set(id, fn); return { dispose() {} }; },
+      getCommands: async () => [...commands.keys()],
+      executeCommand: async (id, ...args) => {
+        if (id === 'setContext') { context.set(args[0], args[1]); return; }
+        executed.push({ id, args });
+        if (commands.has(id)) return commands.get(id)(...args);
+      },
+    },
+  };
+
+  /** Simulate VS Code resolving the webview view. */
+  function openView() {
+    const posted = [];
+    const recv = new EventEmitter();
+    const vis = new EventEmitter(); const disp = new EventEmitter();
+    const view = {
+      visible: true,
+      webview: {
+        options: {}, html: '', cspSource: 'https://res.test',
+        asWebviewUri: (u) => ({ toString: () => `https://res.test${u.fsPath}` }),
+        postMessage: async (m) => { posted.push(m); return true; },
+        onDidReceiveMessage: recv.event,
+      },
+      onDidChangeVisibility: vis.event, onDidDispose: disp.event,
+    };
+    provider.p.resolveWebviewView(view);
+    return { view, posted, send: (m) => provider.p.onMessage(m), lastModel: () => [...posted].reverse().find((m) => m.type === 'render').model };
+  }
+
+  return { vscode, config, sections, commands, executed, context, ui, openView };
+}
+
+/**
+ * Stand-in for the built-in Git extension's commands, implemented the way extensions/git does it
+ * (checked against microsoft/vscode extensions/git/src/commands.ts + git.ts):
+ * message from repository.inputBox, `git commit --quiet --file -` WITHOUT --no-verify (so hooks run),
+ * input box cleared on success, error dialog on failure.
+ */
+function registerFakeGitCommands(fake, api) {
+  const repoFor = (uri) => api.repositories.find((r) => r.rootUri.fsPath === (uri && uri.fsPath));
+  const reg = (id, fn) => fake.commands.set(id, async (uri, ...rest) => {
+    const repo = repoFor(uri);
+    if (!repo) throw new Error(`${id}: repository not resolved from ${uri}`);
+    try { return await fn(repo, ...rest); } catch (e) { fake.ui.errors.push(`${id}: ${String(e.stderr || e.message).trim()}`); }
+  });
+  const run = (repo, args, input) => {
+    const r = cp.spawnSync('git', args, { cwd: repo.rootUri.fsPath, input, encoding: 'utf8' });
+    repo._reload();
+    if (r.status !== 0) { const err = new Error(r.stderr || r.stdout); err.stderr = r.stderr || r.stdout; throw err; }
+    return r.stdout;
+  };
+  const commit = async (repo, opts) => {
+    let message = repo.inputBox.value;
+    if (!message && !opts.amend) { message = fake.ui.nextInput; if (!message) return; }
+    const g = F.groupsOf(repo.state);
+    if (!g.index.length && !opts.amend) {
+      if (!g.working.length) return;
+      const smart = fake.sections.git.enableSmartCommit;
+      if (!smart) {
+        const pick = fake.ui.nextSmartCommit; fake.ui.nextSmartCommit = undefined;
+        fake.ui.warnings.push('There are no staged changes to commit.');
+        if (!pick) return;
+      }
+      run(repo, ['add', '-A']);
+    }
+    const args = ['commit', '--quiet'];
+    if (opts.amend && !message) args.push('--amend', '--no-edit');
+    else { args.push('--allow-empty-message', '--file', '-'); if (opts.amend) args.push('--amend'); }
+    run(repo, args, message);
+    repo.inputBox.value = '';
+    if (opts.postCommitCommand) {
+      if (!fake.commands.has(opts.postCommitCommand)) throw new Error(`command '${opts.postCommitCommand}' not found`);
+      await fake.commands.get(opts.postCommitCommand)(repo.rootUri);
+    }
+  };
+  reg('git.commit', (repo, postCommitCommand) => commit(repo, { postCommitCommand }));
+  reg('git.commitAmend', (repo) => commit(repo, { amend: true }));
+  reg('git.stageAll', (repo) => run(repo, ['add', '-A']));
+  reg('git.unstageAll', (repo) => run(repo, ['reset', '-q']));
+  reg('git.push', (repo) => run(repo, ['push', '-q']));
+  reg('git.pull', (repo) => run(repo, ['pull', '-q']));
+  reg('git.sync', (repo) => { run(repo, ['pull', '-q']); run(repo, ['push', '-q']); });
+  reg('git.publish', (repo) => run(repo, ['push', '-q', '-u', 'origin', repo.state.HEAD.name]));
+  reg('git.checkout', (repo, treeish) => {
+    if (!treeish) { treeish = fake.ui.nextBranch; fake.ui.branchPickerShown = true; if (!treeish) return; }
+    run(repo, ['checkout', '-q', treeish]);
+  });
+  reg('git.stash', (repo) => run(repo, ['stash', '-q', '-u']));
+  reg('git.stashPopLatest', (repo) => run(repo, ['stash', 'pop', '-q']));
+  fake.commands.set('git.showOutput', () => {});
+}
+
+// ---------------------------------------------------------------- fake git API over real repos
+
+const sh = (cwd, cmd) => cp.execSync(cmd, { cwd, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+
+function statusOf(xy) {
+  const [x, y] = xy;
+  const idx = { M: 0, A: 1, D: 2, R: 3, C: 4, T: 0 }[x];
+  const wt = { M: 5, D: 6, T: 11 }[y];
+  return { idx, wt };
+}
+
+function readState(root) {
+  const S = F.Status;
+  const out = sh(root, 'git status --porcelain=v1 -b');
+  const lines = out.split('\n');
+  const head = lines.shift();
+  const st = { HEAD: {}, indexChanges: [], workingTreeChanges: [], mergeChanges: [], remotes: [] };
+  const remotes = sh(root, 'git remote').split('\n').filter(Boolean);
+  st.remotes = remotes.map((name) => ({ name, fetchUrl: sh(root, `git remote get-url ${name}`) }));
+  let m;
+  if ((m = head.match(/^## HEAD \(no branch\)/))) st.HEAD = { commit: sh(root, 'git rev-parse HEAD') };
+  else if ((m = head.match(/^## (?:No commits yet on )?([^.\s]+)(?:\.\.\.(\S+))?(?: \[(.*)\])?/))) {
+    st.HEAD = { name: m[1], commit: cp.spawnSync('git', ['rev-parse', '--verify', '-q', 'HEAD'], { cwd: root }).stdout.toString().trim(), ahead: 0, behind: 0 };
+    if (m[2]) st.HEAD.upstream = { name: m[2] };
+    if (m[3]) { const a = m[3].match(/ahead (\d+)/); const b = m[3].match(/behind (\d+)/); if (a) st.HEAD.ahead = +a[1]; if (b) st.HEAD.behind = +b[1]; }
+  }
+  for (const l of lines.filter(Boolean)) {
+    const xy = l.slice(0, 2); const file = l.slice(3);
+    const uri = Uri.file(path.join(root, file));
+    if (xy === '??') { st.workingTreeChanges.push({ uri, status: S.UNTRACKED }); continue; }
+    if (/U|AA|DD/.test(xy)) { st.mergeChanges.push({ uri, status: S.BOTH_MODIFIED }); continue; }
+    const { idx, wt } = statusOf(xy);
+    if (idx !== undefined) st.indexChanges.push({ uri, status: idx });
+    if (wt !== undefined) st.workingTreeChanges.push({ uri, status: wt });
+  }
+  return st;
+}
+
+function makeRepo(root) {
+  const em = new EventEmitter();
+  const repo = {
+    rootUri: Uri.file(root),
+    state: Object.assign(readState(root), { onDidChange: em.event }),
+    inputBox: { value: '' },
+    _reload() { Object.assign(repo.state, readState(root)); em.fire(); },
+    add: async (paths) => { sh(root, `git add -- ${paths.map((p) => JSON.stringify(p)).join(' ')}`); repo._reload(); },
+    revert: async (paths) => { sh(root, `git reset -q -- ${paths.map((p) => JSON.stringify(p)).join(' ')}`); repo._reload(); },
+    clean: async (paths) => {
+      for (const p of paths) {
+        const tracked = cp.spawnSync('git', ['ls-files', '--error-unmatch', p], { cwd: root }).status === 0;
+        if (tracked) sh(root, `git checkout -- ${JSON.stringify(p)}`); else fs.unlinkSync(p);
+      }
+      repo._reload();
+    },
+    commit: async (msg, opts) => { sh(root, `git commit -q ${opts && opts.amend ? '--amend ' : ''}-m ${JSON.stringify(msg)}`); repo._reload(); },
+    checkout: async (ref) => { sh(root, `git checkout -q ${ref}`); repo._reload(); },
+    push: async (remote, branch, setUp) => { sh(root, setUp ? `git push -q -u ${remote} ${branch}` : 'git push -q'); repo._reload(); },
+    pull: async () => { sh(root, 'git pull -q'); repo._reload(); },
+  };
+  return repo;
+}
+
+function makeGitApi(roots) {
+  const open = new EventEmitter(); const close = new EventEmitter();
+  return {
+    state: 'initialized', onDidChangeState: () => ({ dispose() {} }),
+    git: { path: 'git' },
+    repositories: roots.map(makeRepo),
+    onDidOpenRepository: open.event, onDidCloseRepository: close.event,
+    toGitUri: (uri, ref) => new Uri(uri.fsPath, 'git', `ref=${ref}`),
+    _open: open, _close: close,
+  };
+}
+
+// ---------------------------------------------------------------- fixture
+
+function fixture() {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-'));
+  const ws = path.join(base, 'ws'); fs.mkdirSync(ws);
+  const git = (cwd, c) => sh(cwd, c);
+  const env = 'git -c user.email=t@t -c user.name=t';
+  const mk = (name, fn) => {
+    const remote = path.join(base, 'remotes', name + '.git');
+    fs.mkdirSync(remote, { recursive: true });
+    git(remote, 'git init -q --bare -b main');
+    const dir = path.join(ws, ...name.split('/')); fs.mkdirSync(dir, { recursive: true });
+    git(dir, 'git init -q -b main');
+    git(dir, 'git config user.email t@t && git config user.name t');
+    fs.writeFileSync(path.join(dir, 'README.md'), name + '\n');
+    fs.mkdirSync(path.join(dir, 'src'));
+    fs.writeFileSync(path.join(dir, 'src', 'a.ts'), 'a\n');
+    git(dir, `git add -A && ${env} commit -q -m init`);
+    git(dir, `git remote add origin ${remote} && git push -q -u origin main && git remote set-head origin main`);
+    if (fn) fn(dir);
+    return dir;
+  };
+  const repos = {
+    clean: mk('clean'),
+    dirty: mk('dirty', (d) => { fs.writeFileSync(path.join(d, 'src', 'a.ts'), 'changed\n'); fs.writeFileSync(path.join(d, 'new.txt'), 'x'); }),
+    staged: mk('staged', (d) => { fs.writeFileSync(path.join(d, 'README.md'), 'staged change\n'); git(d, 'git add README.md'); }),
+    feature: mk('feature', (d) => git(d, 'git checkout -q -b feat/auth')),
+    ahead: mk('ahead', (d) => { fs.writeFileSync(path.join(d, 'x'), '1'); git(d, `git add x && ${env} commit -q -m x`); }),
+    legacy: mk('legacy-billing', (d) => fs.writeFileSync(path.join(d, 'README.md'), 'dirty\n')),
+    nested: mk('tools/cli', (d) => fs.writeFileSync(path.join(d, 'README.md'), 'dirty\n')),
+    // no origin/HEAD set, on master => fallback says default
+    master: mk('mastery', (d) => { git(d, 'git checkout -q -b master && git branch -q -D main && git remote set-head origin -d'); }),
+  };
+  return { base, ws, repos };
+}
+
+// ---------------------------------------------------------------- e2e
+
+async function e2e() {
+  console.log('extension.js (mock VS Code + Git extension commands, real git repos)');
+  const { base, ws, repos } = fixture();
+  const fake = makeVscode(ws);
+  const api = makeGitApi(Object.values(repos));
+  fake.vscode.extensions.getExtension = () => ({ isActive: true, exports: { getAPI: () => api } });
+  registerFakeGitCommands(fake, api);
+
+  const origResolve = Module._resolveFilename;
+  Module._resolveFilename = function (req, ...rest) { return req === 'vscode' ? 'vscode' : origResolve.call(this, req, ...rest); };
+  require.cache.vscode = { id: 'vscode', filename: 'vscode', loaded: true, exports: fake.vscode };
+
+  const ext = require('../src/extension');
+  const ctx = {
+    subscriptions: [],
+    extensionUri: Uri.file(path.join(__dirname, '..')),
+    workspaceState: (() => { const m = new Map(); return { get: (k, d) => (m.has(k) ? m.get(k) : d), update: async (k, v) => m.set(k, v) }; })(),
+  };
+  const { view } = await ext.activate(ctx);
+  const panel = fake.openView();
+  const wait = (ms = 220) => new Promise((r) => setTimeout(r, ms));
+  const model = async () => view.refresh();
+  const labels = async () => (await model()).repos.map((r) => r.label);
+  const repo = async (label) => (await model()).repos.find((r) => r.label === label);
+  const apiRepo = (dir) => api.repositories.find((r) => r.rootUri.fsPath === dir);
+  const cmd = (id, ...a) => fake.commands.get(`workspaceChanges.${id}`)(...a);
+  const head = (dir) => sh(dir, 'git log -1 --format=%s');
+  const calls = (id) => fake.executed.filter((e) => e.id === id);
+  const menuCtx = (section, root, extra = {}) => ({ webviewSection: section, root, preventDefaultContextMenuItems: true, ...extra, webview: 'workspaceChanges.view' });
+
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  await t('all manifest commands are registered', () => {
+    for (const c of pkg.contributes.commands) assert.ok(fake.commands.has(c.command), c.command);
+    for (const list of Object.values(pkg.contributes.menus)) {
+      for (const m of list) {
+        if (m.submenu) assert.ok(pkg.contributes.submenus.some((x) => x.id === m.submenu), m.submenu);
+        else assert.ok(fake.commands.has(m.command), m.command);
+      }
+    }
+  });
+
+  await t('package.json menus are generated from src/gitMenu.js (in sync)', () => {
+    const r = cp.spawnSync('node', [path.join(__dirname, '..', 'scripts', 'gen-manifest.js'), '--check'], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+  });
+
+  await t('repo menu mirrors the native Source Control "…" menu', () => {
+    const wc = pkg.contributes.menus['webview/context'].filter((e) => /webviewSection == 'repo'/.test(e.when));
+    const order = (e) => { const [g, n] = e.group.split('@'); return [g, +n]; };
+    wc.sort((a, b) => { const [ga, na] = order(a); const [gb, nb] = order(b); return ga < gb ? -1 : ga > gb ? 1 : na - nb; });
+    const titles = Object.fromEntries(pkg.contributes.commands.map((c) => [c.command, c.title]));
+    const labels = Object.fromEntries(pkg.contributes.submenus.map((s) => [s.id, s.label]));
+    const shown = wc.map((e) => (e.submenu ? `${labels[e.submenu]} >` : titles[e.command]));
+    assert.deepStrictEqual(shown.slice(0, 10), ['Pull', 'Push', 'Clone', 'Checkout to...', 'Fetch', 'Commit >', 'Changes >', 'Pull, Push >', 'Branch >', 'Stash >']);
+    assert.strictEqual(shown.at(-1), 'Show Git Output');
+    const sub = (id) => pkg.contributes.menus[id].map((e) => titles[e.command]);
+    assert.deepStrictEqual(sub('workspaceChanges.changes'), ['Stage All Changes', 'Unstage All Changes', 'Discard All Changes']);
+    assert.ok(sub('workspaceChanges.commit').includes('Undo Last Commit'));
+    assert.ok(pkg.contributes.menus['workspaceChanges.commit'].find((e) => e.command === 'workspaceChanges.git.commitNoVerify').when === 'config.git.allowNoVerifyCommit');
+    const commitBtn = pkg.contributes.menus['webview/context'].filter((e) => /webviewSection == 'commit'/.test(e.when)).map((e) => titles[e.command]);
+    assert.deepStrictEqual(commitBtn, ['Commit', 'Commit (Amend)', 'Commit & Push', 'Commit & Sync']);
+  });
+
+  await t('webview html: CSP, codicons, active icon theme CSS with fonts, resource roots', () => {
+    const html = panel.view.webview.html;
+    const n = html.match(/nonce-([A-Za-z0-9]+)/)[1];
+    assert.match(html, /default-src 'none'/);
+    assert.match(html, new RegExp(`style-src https://res.test 'nonce-${n}'; font-src https://res.test`));
+    assert.ok(html.includes(`<style nonce="${n}" id="file-icon-theme">@font-face`), 'theme css inlined');
+    assert.match(html, /seti\\\.woff/);
+    assert.match(html, /media\/codicons\.js[\s\S]*media\/view\.js/);
+    const roots = panel.view.webview.options.localResourceRoots.map((u) => u.fsPath);
+    assert.ok(roots.some((r) => r.endsWith(path.join('media'))));
+    assert.ok(roots.some((r) => r.endsWith(path.join('extensions', 'theme-seti'))), 'icon theme folder readable');
+  });
+
+  await t('ready → render with default filter; files carry VS Code icon classes', async () => {
+    await panel.send({ type: 'ready' });
+    const m = panel.lastModel();
+    assert.deepStrictEqual(m.repos.map((r) => r.label), ['cli', 'dirty', 'feature', 'legacy-billing', 'staged']);
+    assert.strictEqual(m.fileIcons, true);
+    const dirty = m.repos.find((r) => r.label === 'dirty');
+    const ts = dirty.groups[0].files.find((f) => f.name === 'a.ts');
+    assert.strictEqual(ts.iconClasses, 'file-icon src-name-dir-icon a.ts-name-file-icon name-file-icon ts-ext-file-icon ext-file-icon typescript-lang-file-icon');
+    const md = m.repos.find((r) => r.label === 'staged').groups[0].files[0];
+    assert.match(md.iconClasses, /readme\.md-name-file-icon .* markdown-lang-file-icon$/);
+  });
+
+  await t('header model: PR availability, publish/sync/commit', async () => {
+    const m = panel.lastModel();
+    const feat = m.repos.find((r) => r.label === 'feature');
+    assert.deepStrictEqual([feat.branch, feat.canCreatePr, feat.primary.kind], ['feat/auth', true, 'publish']);
+    const dirty = m.repos.find((r) => r.label === 'dirty');
+    assert.deepStrictEqual([dirty.canCreatePr, dirty.primary.kind], [false, 'commit']);
+  });
+
+  await t('icon theme switch → page rebuilt with the new theme (open docs win for language)', async () => {
+    await fake.vscode.workspace.getConfiguration('workbench').update('iconTheme', 'svg-icons');
+    assert.match(panel.view.webview.html, /nodejs\\\.svg/);
+    assert.doesNotMatch(panel.view.webview.html, /seti\\\.woff/);
+    assert.ok(panel.view.webview.options.localResourceRoots.some((u) => u.fsPath.endsWith('svg-icons')));
+    fake.vscode.workspace.textDocuments.push({ uri: Uri.file(path.join(repos.dirty, 'new.txt')), languageId: 'markdown' });
+    const f = (await repo('dirty')).groups[0].files.find((x) => x.name === 'new.txt');
+    assert.match(f.iconClasses, /markdown-lang-file-icon$/);
+    fake.vscode.workspace.textDocuments.length = 0;
+    await fake.vscode.workspace.getConfiguration('workbench').update('iconTheme', null);
+    assert.strictEqual((await model()).fileIcons, false, 'icon theme "None" → no file icons, like VS Code');
+    await fake.vscode.workspace.getConfiguration('workbench').update('iconTheme', 'vs-seti');
+  });
+
+  await t('filters: live criteria, text, hidden, show all', async () => {
+    await cmd('chooseCriteria');
+    const qp = fake.ui.quickPicks.at(-1);
+    qp._select(qp.items.filter((i) => i.id === 'unpushed'));
+    await wait(5);
+    assert.deepStrictEqual(await labels(), ['ahead', 'feature']);
+    qp._select(qp.items.filter((i) => ['changes', 'nonDefaultBranch'].includes(i.id)));
+    await cmd('filterText');
+    const box = fake.ui.inputBoxes.at(-1);
+    box._type('!legacy auth, sta'); box._accept();
+    await wait(5);
+    assert.deepStrictEqual(await labels(), ['feature', 'staged']);
+    await cmd('clearTextFilter');
+    await cmd('hideRepo', { webviewSection: 'repo', root: repos.legacy });
+    assert.ok(!(await labels()).includes('legacy-billing'));
+    await cmd('showAll');
+    assert.strictEqual((await labels()).length, 8);
+    await cmd('applyFilter');
+    fake.config.hiddenRepositories = [];
+    assert.strictEqual((await labels()).length, 5);
+  });
+
+  await t('commit goes through native git.commit with the message in the repo input box', async () => {
+    fake.executed.length = 0;
+    panel.posted.length = 0;
+    await panel.send({ type: 'commit', root: repos.staged, value: 'feat: staged only' });
+    const c = calls('git.commit')[0];
+    assert.strictEqual(c.args[0].fsPath, repos.staged);
+    assert.strictEqual(c.args.length, 1);
+    assert.strictEqual(head(repos.staged), 'feat: staged only');
+    assert.strictEqual(apiRepo(repos.staged).inputBox.value, '');
+    assert.ok(panel.posted.some((m) => m.type === 'committed' && m.root === repos.staged));
+  });
+
+  await t('commit hooks run: pre-commit + commit-msg fire, failing hook blocks commit and keeps message', async () => {
+    const hooks = path.join(repos.nested, '.git', 'hooks');
+    const marker = path.join(base, 'hook-ran');
+    fs.writeFileSync(path.join(hooks, 'pre-commit'), `#!/bin/sh\necho pre-commit >> ${JSON.stringify(marker)}\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(hooks, 'commit-msg'), `#!/bin/sh\necho "[hooked] $(cat "$1")" > "$1"\n`, { mode: 0o755 });
+    fake.ui.nextSmartCommit = 'Yes';
+    await panel.send({ type: 'commit', root: repos.nested, value: 'fix: cli' });
+    assert.strictEqual(fs.readFileSync(marker, 'utf8'), 'pre-commit\n');
+    assert.strictEqual(head(repos.nested), '[hooked] fix: cli');
+    // now a failing hook
+    fs.writeFileSync(path.join(hooks, 'pre-commit'), '#!/bin/sh\necho "lint failed: 3 problems" >&2\nexit 1\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(repos.nested, 'README.md'), 'again\n');
+    apiRepo(repos.nested)._reload();
+    panel.posted.length = 0;
+    fake.ui.nextSmartCommit = 'Yes';
+    await panel.send({ type: 'commit', root: repos.nested, value: 'fix: should not land' });
+    assert.strictEqual(head(repos.nested), '[hooked] fix: cli');
+    assert.ok(fake.ui.errors.some((e) => /lint failed: 3 problems/.test(e)), 'hook output surfaced');
+    assert.strictEqual(apiRepo(repos.nested).inputBox.value, 'fix: should not land', 'message kept for retry');
+    assert.ok(!panel.posted.some((m) => m.type === 'committed'), 'draft not cleared in the page');
+    fake.ui.errors.length = 0;
+    fs.unlinkSync(path.join(hooks, 'pre-commit'));
+  });
+
+  await t('smart commit prompt is the native one (cancel = no commit)', async () => {
+    fake.ui.nextSmartCommit = undefined;
+    await panel.send({ type: 'commit', root: repos.dirty, value: 'chore: all' });
+    assert.ok(fake.ui.warnings.includes('There are no staged changes to commit.'));
+    assert.strictEqual(head(repos.dirty), 'init');
+  });
+
+  await t('commit dropdown (native menu): Commit & Push → git.commit(repo, "git.push"); Amend → git.commitAmend', async () => {
+    fake.executed.length = 0;
+    fake.ui.nextSmartCommit = 'Yes';
+    await panel.send({ type: 'input', root: repos.nested, value: 'fix: retry' }); // page flushes the draft before opening the menu
+    await fake.commands.get('workspaceChanges.commitAndPush')(menuCtx('commit', repos.nested));
+    assert.deepStrictEqual(calls('git.commit')[0].args.slice(1), ['git.push'], 'post-commit arg is the git.push command id');
+    assert.strictEqual(head(repos.nested), '[hooked] fix: retry', 'committed (commit-msg hook from the earlier test still active)');
+    assert.strictEqual(sh(repos.nested, 'git rev-list --count origin/main..main'), '0', 'pushed');
+    fs.writeFileSync(path.join(repos.nested, 'more.txt'), 'x'); sh(repos.nested, 'git add more.txt'); apiRepo(repos.nested)._reload();
+    await fake.commands.get('workspaceChanges.git.commitAmend')(menuCtx('commit', repos.nested));
+    assert.strictEqual(calls('git.commitAmend')[0].args[0].fsPath, repos.nested);
+    assert.match(sh(repos.nested, 'git show --stat --format= HEAD'), /more\.txt/);
+  });
+
+  await t('header: branch click → native branch picker for that repo', async () => {
+    fake.executed.length = 0;
+    fake.ui.nextBranch = 'main';
+    await panel.send({ type: 'repoAction', root: repos.feature, action: 'checkoutBranch' });
+    const c = calls('git.checkout')[0];
+    assert.deepStrictEqual([c.args[0].fsPath, c.args.length], [repos.feature, 1]);
+    assert.strictEqual(sh(repos.feature, 'git branch --show-current'), 'main');
+    sh(repos.feature, 'git checkout -q feat/auth'); apiRepo(repos.feature)._reload();
+    fake.ui.nextBranch = undefined;
+  });
+
+  await t('header: ↓ pulls, ↑ pushes (native git.pull / git.push)', async () => {
+    fake.executed.length = 0;
+    await panel.send({ type: 'repoAction', root: repos.ahead, action: 'push' });
+    assert.strictEqual(calls('git.push').length, 1);
+    assert.strictEqual(sh(repos.ahead, 'git rev-list --count origin/main..main'), '0');
+    // make 'clean' behind: push a commit from another clone
+    const other = path.join(base, 'other');
+    sh(base, `git clone -q ${sh(repos.clean, 'git remote get-url origin')} other`);
+    sh(other, 'git config user.email t@t && git config user.name t && echo z > z && git add z && git commit -qm remote && git push -q');
+    sh(repos.clean, 'git fetch -q'); apiRepo(repos.clean)._reload();
+    fake.config.criteria = ['behind'];
+    assert.strictEqual((await repo('clean')).behind, 1);
+    await panel.send({ type: 'repoAction', root: repos.clean, action: 'pull' });
+    assert.strictEqual(calls('git.pull').length, 1);
+    assert.strictEqual(head(repos.clean), 'remote');
+    fake.config.criteria = ['changes', 'nonDefaultBranch'];
+  });
+
+  await t('primary: Publish Branch → git.publish; Sync → git.sync', async () => {
+    fake.executed.length = 0;
+    await panel.send({ type: 'primary', root: repos.feature, value: '' });
+    assert.strictEqual(calls('git.publish').length, 1);
+    assert.ok(sh(repos.feature, 'git rev-parse --abbrev-ref @{u}').endsWith('feat/auth'));
+    sh(repos.feature, 'echo s > s && git add s && git commit -qm s'); apiRepo(repos.feature)._reload();
+    const f = await repo('feature');
+    assert.deepStrictEqual(f.primary, { kind: 'sync', label: 'Sync Changes 1↑', enabled: true });
+    await panel.send({ type: 'primary', root: repos.feature, value: '' });
+    assert.strictEqual(calls('git.sync').length, 1);
+  });
+
+  await t('Create PR: GitHub PR extension when installed, else browser compare page', async () => {
+    sh(repos.feature, 'git remote set-url origin git@github.com:acme/front.git'); apiRepo(repos.feature)._reload();
+    let prArgs;
+    fake.commands.set('pr.create', async (a) => { prArgs = a; });
+    await panel.send({ type: 'repoAction', root: repos.feature, action: 'createPr' });
+    assert.deepStrictEqual(prArgs, { repoPath: repos.feature, compareBranch: 'feat/auth' });
+    fake.commands.delete('pr.create');
+    await panel.send({ type: 'repoAction', root: repos.feature, action: 'createPr' });
+    assert.strictEqual(fake.ui.opened.at(-1), 'https://github.com/acme/front/compare/main...feat/auth?expand=1');
+    fake.commands.set('pr.create', async () => { throw new Error('should not be used'); });
+    fake.config.createPullRequest = 'browser';
+    await panel.send({ type: 'repoAction', root: repos.feature, action: 'createPr' });
+    assert.strictEqual(fake.ui.opened.length, 2);
+    fake.commands.delete('pr.create');
+    fake.config.createPullRequest = 'auto';
+  });
+
+  await t('Create PR on an unpublished branch asks to publish first', async () => {
+    sh(repos.staged, 'git checkout -q -b feat/new');
+    apiRepo(repos.staged)._reload();
+    fake.ui.nextInfo = undefined;
+    const before = fake.ui.opened.length;
+    await panel.send({ type: 'repoAction', root: repos.staged, action: 'createPr' });
+    assert.match(fake.ui.infos.at(-1), /has not been published yet/);
+    assert.strictEqual(fake.ui.opened.length, before, 'cancelled → nothing opened');
+    fake.ui.nextInfo = 'Publish Branch';
+    await panel.send({ type: 'repoAction', root: repos.staged, action: 'createPr' });
+    assert.ok(sh(repos.staged, 'git rev-parse --abbrev-ref @{u}').endsWith('feat/new'));
+    assert.strictEqual(fake.ui.opened.length, before, 'local-path remote → no URL (warns instead)');
+    assert.match(fake.ui.lastWarning, /Don't know how to open a pull request/);
+  });
+
+  await t('file + group actions from the page', async () => {
+    fs.writeFileSync(path.join(repos.clean, 'README.md'), 'edit\n');
+    fs.writeFileSync(path.join(repos.clean, 'tmp.log'), 'junk');
+    apiRepo(repos.clean)._reload();
+    let r = await repo('clean');
+    const readme = r.groups[0].files.find((f) => f.name === 'README.md');
+    fake.executed.length = 0;
+    await panel.send({ type: 'fileAction', root: repos.clean, group: 'working', uri: readme.uri, action: 'open' });
+    const diff = calls('vscode.diff')[0];
+    assert.deepStrictEqual([diff.args[0].query, diff.args[2]], ['ref=~', 'README.md (Working Tree)']);
+    await panel.send({ type: 'fileAction', root: repos.clean, group: 'working', uri: readme.uri, action: 'stage' });
+    r = await repo('clean');
+    assert.deepStrictEqual(r.groups.map((g) => [g.key, g.count]), [['index', 1], ['working', 1]]);
+    await panel.send({ type: 'groupAction', root: repos.clean, group: 'index', action: 'unstage' });
+    r = await repo('clean');
+    assert.deepStrictEqual(r.groups.map((g) => [g.key, g.count]), [['working', 2]]);
+    fake.ui.nextWarning = 'Discard';
+    const log = r.groups[0].files.find((f) => f.name === 'tmp.log');
+    await panel.send({ type: 'fileAction', root: repos.clean, group: 'working', uri: log.uri, action: 'discard' });
+    assert.ok(!fs.existsSync(path.join(repos.clean, 'tmp.log')));
+  });
+
+  await t('repo context menu: stage all / unstage all via native commands', async () => {
+    fake.executed.length = 0;
+    await cmd('stageAll', { webviewSection: 'repo', root: repos.clean });
+    assert.strictEqual(calls('git.stageAll')[0].args[0].fsPath, repos.clean);
+    assert.strictEqual((await repo('clean')).staged, 1);
+    await cmd('unstageAll', { webviewSection: 'repo', root: repos.clean });
+    assert.strictEqual((await repo('clean')).staged, 0);
+  });
+
+  await t('… menu: checkout default branch → git.checkout(repo, "main")', async () => {
+    fake.executed.length = 0;
+    await cmd('checkoutDefault', menuCtx('repo', repos.feature, { nondefault: true }));
+    assert.deepStrictEqual(calls('git.checkout')[0].args.slice(1), ['main']);
+    assert.strictEqual(sh(repos.feature, 'git branch --show-current'), 'main');
+  });
+
+  await t('… menu: every entry runs the native git command for THAT repo (no repo picker)', async () => {
+    const GM = require('../src/gitMenu');
+    const saved = new Map();
+    const seen = [];
+    for (const w of GM.wrappers()) {
+      saved.set(w.native, fake.commands.get(w.native));
+      fake.commands.set(w.native, async (...args) => { seen.push([w.native, args]); });
+    }
+    try {
+      for (const w of GM.wrappers()) {
+        seen.length = 0;
+        fake.ui.lastPickItems = undefined;
+        await fake.commands.get(w.id)(menuCtx('repo', repos.legacy));
+        assert.strictEqual(seen.length, 1, w.id);
+        const [native, args] = seen[0];
+        assert.strictEqual(native, w.native);
+        if (w.noRepoArg) assert.deepStrictEqual(args, [], `${w.native} gets no repo arg`);
+        else assert.deepStrictEqual(args.map((a) => a.fsPath), [repos.legacy], `${w.native} gets the repo root`);
+        assert.strictEqual(fake.ui.lastPickItems, undefined, 'no repository picker');
+      }
+    } finally {
+      for (const [id, fn] of saved) { if (fn) fake.commands.set(id, fn); else fake.commands.delete(id); }
+    }
+  });
+
+  await t('collapse / expand all posts to the page', async () => {
+    panel.posted.length = 0;
+    await cmd('collapseAll');
+    await cmd('expandAll');
+    assert.deepStrictEqual(panel.posted.filter((m) => m.type === 'setAllCollapsed').map((m) => m.collapsed), [true, false]);
+  });
+
+  await t('title bar toggle: one button, Collapse All ⇄ Expand All, driven by the page state', async () => {
+    const title = pkg.contributes.menus['view/title'];
+    const col = title.find((e) => e.command === 'workspaceChanges.collapseAll');
+    const exp = title.find((e) => e.command === 'workspaceChanges.expandAll');
+    assert.strictEqual(col.group, exp.group, 'same slot');
+    assert.match(col.when, /!workspaceChanges\.allCollapsed$/);
+    assert.match(exp.when, /[^!]workspaceChanges\.allCollapsed$/);
+    await panel.send({ type: 'collapseState', allCollapsed: true });
+    assert.strictEqual(fake.context.get('workspaceChanges.allCollapsed'), true);
+    await panel.send({ type: 'collapseState', allCollapsed: false });
+    assert.strictEqual(fake.context.get('workspaceChanges.allCollapsed'), false);
+  });
+
+  await t('palette commit uses the native flow for the picked repo', async () => {
+    fake.ui.nextPick = (items) => items.find((i) => i.label === 'clean');
+    apiRepo(repos.clean).inputBox.value = 'chore: palette';
+    fake.ui.nextSmartCommit = 'Yes';
+    await cmd('commit');
+    assert.strictEqual(head(repos.clean), 'chore: palette');
+    fake.ui.nextPick = undefined;
+  });
+
+  await t('no unexpected errors surfaced', () => assert.deepStrictEqual(fake.ui.errors, []));
+
+  for (const d of ctx.subscriptions) d.dispose && d.dispose();
+  fs.rmSync(base, { recursive: true, force: true });
+}
+
+(async () => {
+  await unit();
+  await unitIcons();
+  await e2e();
+  console.log(`\n${passed} passed`);
+})().catch((e) => { console.error('\n✗ FAILED:', e); process.exit(1); });

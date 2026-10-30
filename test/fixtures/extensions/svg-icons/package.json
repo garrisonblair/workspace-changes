@@ -1,0 +1,1 @@
+{ "name": "svg-icons", "contributes": { "iconThemes": [ { "id": "svg-icons", "label": "SVG Icons (test)", "path": "./theme.json" } ] } }

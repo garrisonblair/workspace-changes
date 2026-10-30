@@ -1,0 +1,53 @@
+{
+ "name": "typescript",
+ "contributes": {
+  "languages": [
+   {
+    "id": "typescript",
+    "aliases": [
+     "TypeScript",
+     "ts",
+     "typescript"
+    ],
+    "extensions": [
+     ".ts",
+     ".cts",
+     ".mts"
+    ],
+    "firstLine": "^#!.*\\b(deno|bun|ts-node)\\b",
+    "configuration": "./language-configuration.json"
+   },
+   {
+    "id": "typescriptreact",
+    "aliases": [
+     "TypeScript JSX",
+     "TypeScript React",
+     "tsx"
+    ],
+    "extensions": [
+     ".tsx"
+    ],
+    "configuration": "./language-configuration.json"
+   },
+   {
+    "id": "jsonc",
+    "filenames": [
+     "tsconfig.json",
+     "jsconfig.json"
+    ],
+    "filenamePatterns": [
+     "tsconfig.*.json",
+     "jsconfig.*.json",
+     "tsconfig-*.json",
+     "jsconfig-*.json"
+    ]
+   },
+   {
+    "id": "json",
+    "extensions": [
+     ".tsbuildinfo"
+    ]
+   }
+  ]
+ }
+}

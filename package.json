@@ -1,0 +1,1268 @@
+{
+  "name": "workspace-changes",
+  "displayName": "Workspace Changes",
+  "description": "A Source Control panel for multi-repo workspaces: shows only the repos you care about (changes, non-default branch, ahead/behind), each with its own native-looking commit box, file icons and Git menus.",
+  "version": "0.4.1",
+  "publisher": "garrisonblair",
+  "author": {
+    "name": "Garrison Blair"
+  },
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#0b3d91",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/garrisonblair/workspace-changes.git"
+  },
+  "bugs": {
+    "url": "https://github.com/garrisonblair/workspace-changes/issues"
+  },
+  "homepage": "https://github.com/garrisonblair/workspace-changes#readme",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "keywords": [
+    "git",
+    "multi-repo",
+    "multi-root",
+    "monorepo",
+    "source control",
+    "scm",
+    "repositories",
+    "commit",
+    "filter",
+    "workspace"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "extensionDependencies": [
+    "vscode.git"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./src/extension.js",
+  "scripts": {
+    "test": "node test/run.js",
+    "test:webview": "python3 test/webview_test.py",
+    "gen:manifest": "node scripts/gen-manifest.js",
+    "check:manifest": "node scripts/gen-manifest.js --check",
+    "package": "npx @vscode/vsce package"
+  },
+  "contributes": {
+    "views": {
+      "scm": [
+        {
+          "type": "webview",
+          "id": "workspaceChanges.view",
+          "name": "Workspace Changes"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "workspaceChanges.chooseCriteria",
+        "title": "Choose Which Repositories to Show…",
+        "category": "Workspace Changes",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "workspaceChanges.filterText",
+        "title": "Filter Repositories by Name…",
+        "category": "Workspace Changes",
+        "icon": "$(search)"
+      },
+      {
+        "command": "workspaceChanges.clearTextFilter",
+        "title": "Clear Name Filter",
+        "category": "Workspace Changes",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "workspaceChanges.showAll",
+        "title": "Show All Repositories",
+        "category": "Workspace Changes",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "workspaceChanges.applyFilter",
+        "title": "Apply Filter",
+        "category": "Workspace Changes",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "workspaceChanges.refresh",
+        "title": "Refresh",
+        "category": "Workspace Changes",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "workspaceChanges.collapseAll",
+        "title": "Collapse All Repositories",
+        "category": "Workspace Changes",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "workspaceChanges.expandAll",
+        "title": "Expand All Repositories",
+        "category": "Workspace Changes",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "workspaceChanges.manageHidden",
+        "title": "Manage Always-Hidden Repositories…",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.hideRepo",
+        "title": "Always Hide Repository",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.openChange",
+        "title": "Open Changes",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.openFile",
+        "title": "Open File",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.stage",
+        "title": "Stage Changes",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.unstage",
+        "title": "Unstage Changes",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.discard",
+        "title": "Discard Changes",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.stageAll",
+        "title": "Stage All Changes",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.unstageAll",
+        "title": "Unstage All Changes",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.commit",
+        "title": "Commit…",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.commitAndPush",
+        "title": "Commit & Push",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.commitAndSync",
+        "title": "Commit & Sync",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.push",
+        "title": "Push",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.pull",
+        "title": "Pull",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.sync",
+        "title": "Sync",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.checkoutDefault",
+        "title": "Checkout Default Branch",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.checkoutBranch",
+        "title": "Checkout Branch…",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.openTerminal",
+        "title": "Open Terminal Here",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.revealInExplorer",
+        "title": "Reveal in Explorer View",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.publish",
+        "title": "Publish Branch",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.createPr",
+        "title": "Create Pull Request…",
+        "category": "Workspace Changes"
+      },
+      {
+        "command": "workspaceChanges.git.pull",
+        "title": "Pull",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.push",
+        "title": "Push",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.clone",
+        "title": "Clone",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.checkout",
+        "title": "Checkout to...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.fetch",
+        "title": "Fetch",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.showOutput",
+        "title": "Show Git Output",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commit",
+        "title": "Commit",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitStaged",
+        "title": "Commit Staged",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitAll",
+        "title": "Commit All",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.undoCommit",
+        "title": "Undo Last Commit",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.rebaseAbort",
+        "title": "Abort Rebase",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitNoVerify",
+        "title": "Commit (No Verify)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitStagedNoVerify",
+        "title": "Commit Staged (No Verify)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitAllNoVerify",
+        "title": "Commit All (No Verify)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitAmend",
+        "title": "Commit (Amend)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitStagedAmend",
+        "title": "Commit Staged (Amend)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitAllAmend",
+        "title": "Commit All (Amend)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitAmendNoVerify",
+        "title": "Commit (Amend, No Verify)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitStagedAmendNoVerify",
+        "title": "Commit Staged (Amend, No Verify)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitAllAmendNoVerify",
+        "title": "Commit All (Amend, No Verify)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitSigned",
+        "title": "Commit (Signed Off)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitStagedSigned",
+        "title": "Commit Staged (Signed Off)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitAllSigned",
+        "title": "Commit All (Signed Off)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitSignedNoVerify",
+        "title": "Commit (Signed Off, No Verify)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitStagedSignedNoVerify",
+        "title": "Commit Staged (Signed Off, No Verify)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.commitAllSignedNoVerify",
+        "title": "Commit All (Signed Off, No Verify)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.stageAll",
+        "title": "Stage All Changes",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.unstageAll",
+        "title": "Unstage All Changes",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.cleanAll",
+        "title": "Discard All Changes",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.sync",
+        "title": "Sync",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.syncRebase",
+        "title": "Sync (Rebase)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.pullRebase",
+        "title": "Pull (Rebase)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.pullFrom",
+        "title": "Pull from...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.pushForce",
+        "title": "Push (Force)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.pushTo",
+        "title": "Push to...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.pushToForce",
+        "title": "Push to... (Force)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.fetchPrune",
+        "title": "Fetch (Prune)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.fetchAll",
+        "title": "Fetch From All Remotes",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.merge",
+        "title": "Merge...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.rebase",
+        "title": "Rebase Branch...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.branch",
+        "title": "Create Branch...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.branchFrom",
+        "title": "Create Branch From...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.renameBranch",
+        "title": "Rename Branch...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.deleteBranch",
+        "title": "Delete Branch...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.deleteRemoteBranch",
+        "title": "Delete Remote Branch...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.publish",
+        "title": "Publish Branch...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.stash",
+        "title": "Stash",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.stashIncludeUntracked",
+        "title": "Stash (Include Untracked)",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.stashStaged",
+        "title": "Stash Staged",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.stashApplyLatest",
+        "title": "Apply Latest Stash",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.stashApply",
+        "title": "Apply Stash...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.stashPopLatest",
+        "title": "Pop Latest Stash",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.stashPop",
+        "title": "Pop Stash...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.stashDrop",
+        "title": "Drop Stash...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.stashDropAll",
+        "title": "Drop All Stashes...",
+        "category": "Git"
+      },
+      {
+        "command": "workspaceChanges.git.stashView",
+        "title": "View Stash...",
+        "category": "Git"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "workspaceChanges.chooseCriteria",
+          "when": "view == workspaceChanges.view",
+          "group": "navigation@1"
+        },
+        {
+          "command": "workspaceChanges.filterText",
+          "when": "view == workspaceChanges.view",
+          "group": "navigation@2"
+        },
+        {
+          "command": "workspaceChanges.clearTextFilter",
+          "when": "view == workspaceChanges.view && workspaceChanges.textFilterActive",
+          "group": "navigation@3"
+        },
+        {
+          "command": "workspaceChanges.showAll",
+          "when": "view == workspaceChanges.view && !workspaceChanges.showAll",
+          "group": "navigation@4"
+        },
+        {
+          "command": "workspaceChanges.applyFilter",
+          "when": "view == workspaceChanges.view && workspaceChanges.showAll",
+          "group": "navigation@4"
+        },
+        {
+          "command": "workspaceChanges.refresh",
+          "when": "view == workspaceChanges.view",
+          "group": "navigation@5"
+        },
+        {
+          "command": "workspaceChanges.collapseAll",
+          "when": "view == workspaceChanges.view && !workspaceChanges.allCollapsed",
+          "group": "navigation@6"
+        },
+        {
+          "command": "workspaceChanges.expandAll",
+          "when": "view == workspaceChanges.view && workspaceChanges.allCollapsed",
+          "group": "navigation@6"
+        },
+        {
+          "command": "workspaceChanges.manageHidden",
+          "when": "view == workspaceChanges.view",
+          "group": "2_hidden"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "workspaceChanges.git.pull",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "1_header@1"
+        },
+        {
+          "command": "workspaceChanges.git.push",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "1_header@2"
+        },
+        {
+          "command": "workspaceChanges.git.clone",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "1_header@3"
+        },
+        {
+          "command": "workspaceChanges.git.checkout",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "1_header@4"
+        },
+        {
+          "command": "workspaceChanges.git.fetch",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "1_header@5"
+        },
+        {
+          "command": "workspaceChanges.git.showOutput",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "9_footer@1"
+        },
+        {
+          "submenu": "workspaceChanges.commit",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "2_main@1"
+        },
+        {
+          "submenu": "workspaceChanges.changes",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "2_main@2"
+        },
+        {
+          "submenu": "workspaceChanges.pullpush",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "2_main@3"
+        },
+        {
+          "submenu": "workspaceChanges.branch",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "2_main@4"
+        },
+        {
+          "submenu": "workspaceChanges.stash",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "2_main@5"
+        },
+        {
+          "command": "workspaceChanges.createPr",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo' && nondefault",
+          "group": "3_workspace@1"
+        },
+        {
+          "command": "workspaceChanges.checkoutDefault",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo' && nondefault",
+          "group": "3_workspace@2"
+        },
+        {
+          "command": "workspaceChanges.openTerminal",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "4_open@1"
+        },
+        {
+          "command": "workspaceChanges.revealInExplorer",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "4_open@2"
+        },
+        {
+          "command": "workspaceChanges.hideRepo",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'repo'",
+          "group": "4_open@3"
+        },
+        {
+          "command": "workspaceChanges.git.commit",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'commit'",
+          "group": "1_commit@1"
+        },
+        {
+          "command": "workspaceChanges.git.commitAmend",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'commit'",
+          "group": "1_commit@2"
+        },
+        {
+          "command": "workspaceChanges.commitAndPush",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'commit'",
+          "group": "2_post@1"
+        },
+        {
+          "command": "workspaceChanges.commitAndSync",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'commit'",
+          "group": "2_post@2"
+        },
+        {
+          "command": "workspaceChanges.stage",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'group' && group != 'index'",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "workspaceChanges.unstage",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'group' && group == 'index'",
+          "group": "1_modify@2"
+        },
+        {
+          "command": "workspaceChanges.discard",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'group' && group == 'working'",
+          "group": "1_modify@3"
+        },
+        {
+          "command": "workspaceChanges.openChange",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'file'",
+          "group": "1_open@1"
+        },
+        {
+          "command": "workspaceChanges.openFile",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'file'",
+          "group": "1_open@2"
+        },
+        {
+          "command": "workspaceChanges.stage",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'file' && group != 'index'",
+          "group": "2_modify@1"
+        },
+        {
+          "command": "workspaceChanges.unstage",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'file' && group == 'index'",
+          "group": "2_modify@2"
+        },
+        {
+          "command": "workspaceChanges.discard",
+          "when": "webviewId == 'workspaceChanges.view' && webviewSection == 'file' && group == 'working'",
+          "group": "2_modify@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "workspaceChanges.openChange",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.openFile",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.stage",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.unstage",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.discard",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.clearTextFilter",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.applyFilter",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.pull",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.push",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.clone",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.checkout",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.fetch",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.showOutput",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commit",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitStaged",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitAll",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.undoCommit",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.rebaseAbort",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitNoVerify",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitStagedNoVerify",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitAllNoVerify",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitAmend",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitStagedAmend",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitAllAmend",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitAmendNoVerify",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitStagedAmendNoVerify",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitAllAmendNoVerify",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitSigned",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitStagedSigned",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitAllSigned",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitSignedNoVerify",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitStagedSignedNoVerify",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.commitAllSignedNoVerify",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.stageAll",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.unstageAll",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.cleanAll",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.sync",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.syncRebase",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.pullRebase",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.pullFrom",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.pushForce",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.pushTo",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.pushToForce",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.fetchPrune",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.fetchAll",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.merge",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.rebase",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.branch",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.branchFrom",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.renameBranch",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.deleteBranch",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.deleteRemoteBranch",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.publish",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.stash",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.stashIncludeUntracked",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.stashStaged",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.stashApplyLatest",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.stashApply",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.stashPopLatest",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.stashPop",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.stashDrop",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.stashDropAll",
+          "when": "false"
+        },
+        {
+          "command": "workspaceChanges.git.stashView",
+          "when": "false"
+        }
+      ],
+      "workspaceChanges.commit": [
+        {
+          "command": "workspaceChanges.git.commit",
+          "group": "1_commit@1"
+        },
+        {
+          "command": "workspaceChanges.git.commitStaged",
+          "group": "1_commit@2"
+        },
+        {
+          "command": "workspaceChanges.git.commitAll",
+          "group": "1_commit@3"
+        },
+        {
+          "command": "workspaceChanges.git.undoCommit",
+          "group": "1_commit@4"
+        },
+        {
+          "command": "workspaceChanges.git.rebaseAbort",
+          "group": "1_commit@5"
+        },
+        {
+          "command": "workspaceChanges.git.commitNoVerify",
+          "when": "config.git.allowNoVerifyCommit",
+          "group": "2_commit_noverify@1"
+        },
+        {
+          "command": "workspaceChanges.git.commitStagedNoVerify",
+          "when": "config.git.allowNoVerifyCommit",
+          "group": "2_commit_noverify@2"
+        },
+        {
+          "command": "workspaceChanges.git.commitAllNoVerify",
+          "when": "config.git.allowNoVerifyCommit",
+          "group": "2_commit_noverify@3"
+        },
+        {
+          "command": "workspaceChanges.git.commitAmend",
+          "group": "3_amend@1"
+        },
+        {
+          "command": "workspaceChanges.git.commitStagedAmend",
+          "group": "3_amend@2"
+        },
+        {
+          "command": "workspaceChanges.git.commitAllAmend",
+          "group": "3_amend@3"
+        },
+        {
+          "command": "workspaceChanges.git.commitAmendNoVerify",
+          "when": "config.git.allowNoVerifyCommit",
+          "group": "4_amend_noverify@1"
+        },
+        {
+          "command": "workspaceChanges.git.commitStagedAmendNoVerify",
+          "when": "config.git.allowNoVerifyCommit",
+          "group": "4_amend_noverify@2"
+        },
+        {
+          "command": "workspaceChanges.git.commitAllAmendNoVerify",
+          "when": "config.git.allowNoVerifyCommit",
+          "group": "4_amend_noverify@3"
+        },
+        {
+          "command": "workspaceChanges.git.commitSigned",
+          "group": "5_signoff@1"
+        },
+        {
+          "command": "workspaceChanges.git.commitStagedSigned",
+          "group": "5_signoff@2"
+        },
+        {
+          "command": "workspaceChanges.git.commitAllSigned",
+          "group": "5_signoff@3"
+        },
+        {
+          "command": "workspaceChanges.git.commitSignedNoVerify",
+          "when": "config.git.allowNoVerifyCommit",
+          "group": "6_signoff_noverify@1"
+        },
+        {
+          "command": "workspaceChanges.git.commitStagedSignedNoVerify",
+          "when": "config.git.allowNoVerifyCommit",
+          "group": "6_signoff_noverify@2"
+        },
+        {
+          "command": "workspaceChanges.git.commitAllSignedNoVerify",
+          "when": "config.git.allowNoVerifyCommit",
+          "group": "6_signoff_noverify@3"
+        }
+      ],
+      "workspaceChanges.changes": [
+        {
+          "command": "workspaceChanges.git.stageAll",
+          "group": "changes@1"
+        },
+        {
+          "command": "workspaceChanges.git.unstageAll",
+          "group": "changes@2"
+        },
+        {
+          "command": "workspaceChanges.git.cleanAll",
+          "group": "changes@3"
+        }
+      ],
+      "workspaceChanges.pullpush": [
+        {
+          "command": "workspaceChanges.git.sync",
+          "group": "1_sync@1"
+        },
+        {
+          "command": "workspaceChanges.git.syncRebase",
+          "group": "1_sync@2"
+        },
+        {
+          "command": "workspaceChanges.git.pull",
+          "group": "2_pull@1"
+        },
+        {
+          "command": "workspaceChanges.git.pullRebase",
+          "group": "2_pull@2"
+        },
+        {
+          "command": "workspaceChanges.git.pullFrom",
+          "group": "2_pull@3"
+        },
+        {
+          "command": "workspaceChanges.git.push",
+          "group": "3_push@1"
+        },
+        {
+          "command": "workspaceChanges.git.pushForce",
+          "when": "config.git.allowForcePush",
+          "group": "3_push@2"
+        },
+        {
+          "command": "workspaceChanges.git.pushTo",
+          "group": "3_push@3"
+        },
+        {
+          "command": "workspaceChanges.git.pushToForce",
+          "when": "config.git.allowForcePush",
+          "group": "3_push@4"
+        },
+        {
+          "command": "workspaceChanges.git.fetch",
+          "group": "4_fetch@1"
+        },
+        {
+          "command": "workspaceChanges.git.fetchPrune",
+          "group": "4_fetch@2"
+        },
+        {
+          "command": "workspaceChanges.git.fetchAll",
+          "group": "4_fetch@3"
+        }
+      ],
+      "workspaceChanges.branch": [
+        {
+          "command": "workspaceChanges.git.merge",
+          "group": "1_merge@1"
+        },
+        {
+          "command": "workspaceChanges.git.rebase",
+          "group": "1_merge@2"
+        },
+        {
+          "command": "workspaceChanges.git.branch",
+          "group": "2_branch@1"
+        },
+        {
+          "command": "workspaceChanges.git.branchFrom",
+          "group": "2_branch@2"
+        },
+        {
+          "command": "workspaceChanges.git.renameBranch",
+          "group": "3_modify@1"
+        },
+        {
+          "command": "workspaceChanges.git.deleteBranch",
+          "group": "3_modify@2"
+        },
+        {
+          "command": "workspaceChanges.git.deleteRemoteBranch",
+          "group": "3_modify@3"
+        },
+        {
+          "command": "workspaceChanges.git.publish",
+          "group": "4_publish@1"
+        }
+      ],
+      "workspaceChanges.stash": [
+        {
+          "command": "workspaceChanges.git.stash",
+          "group": "1_stash@1"
+        },
+        {
+          "command": "workspaceChanges.git.stashIncludeUntracked",
+          "group": "1_stash@2"
+        },
+        {
+          "command": "workspaceChanges.git.stashStaged",
+          "when": "gitVersion2.35",
+          "group": "1_stash@3"
+        },
+        {
+          "command": "workspaceChanges.git.stashApplyLatest",
+          "group": "2_apply@1"
+        },
+        {
+          "command": "workspaceChanges.git.stashApply",
+          "group": "2_apply@2"
+        },
+        {
+          "command": "workspaceChanges.git.stashPopLatest",
+          "group": "3_pop@1"
+        },
+        {
+          "command": "workspaceChanges.git.stashPop",
+          "group": "3_pop@2"
+        },
+        {
+          "command": "workspaceChanges.git.stashDrop",
+          "group": "4_drop@1"
+        },
+        {
+          "command": "workspaceChanges.git.stashDropAll",
+          "group": "4_drop@2"
+        },
+        {
+          "command": "workspaceChanges.git.stashView",
+          "group": "5_preview@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Workspace Changes",
+      "properties": {
+        "workspaceChanges.criteria": {
+          "type": "array",
+          "default": [
+            "changes",
+            "nonDefaultBranch"
+          ],
+          "items": {
+            "type": "string",
+            "enum": [
+              "changes",
+              "nonDefaultBranch",
+              "unpushed",
+              "behind"
+            ],
+            "enumDescriptions": [
+              "Has staged, unstaged, untracked or conflicted files",
+              "Checked-out branch is not the default branch (or HEAD is detached)",
+              "Ahead of upstream, or a non-default branch that is not published",
+              "Behind upstream"
+            ]
+          },
+          "uniqueItems": true,
+          "markdownDescription": "A repository is shown when it matches **any** of these rules. Empty list shows every repository. Toggle live with the filter button in the panel."
+        },
+        "workspaceChanges.defaultBranchNames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "main",
+            "master"
+          ],
+          "markdownDescription": "Fallback default branch names, used when a repo has no `refs/remotes/origin/HEAD` (fix that with `git remote set-head origin -a`)."
+        },
+        "workspaceChanges.hiddenRepositories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Repositories never shown (unless *Show All* is on). Matches the folder name or workspace-relative path; `*` and `?` wildcards allowed."
+        },
+        "workspaceChanges.createPullRequest": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "browser"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Use the GitHub Pull Requests extension when installed (GitHub remotes), otherwise open the hosting site's create page in the browser",
+            "Always open the hosting site's create page (GitHub, GitLab, Bitbucket, Azure DevOps) in the browser"
+          ],
+          "description": "How the Create Pull Request button works."
+        }
+      }
+    },
+    "submenus": [
+      {
+        "id": "workspaceChanges.commit",
+        "label": "Commit"
+      },
+      {
+        "id": "workspaceChanges.changes",
+        "label": "Changes"
+      },
+      {
+        "id": "workspaceChanges.pullpush",
+        "label": "Pull, Push"
+      },
+      {
+        "id": "workspaceChanges.branch",
+        "label": "Branch"
+      },
+      {
+        "id": "workspaceChanges.stash",
+        "label": "Stash"
+      }
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+{
+ "name": "javascript",
+ "contributes": {
+  "languages": [
+   {
+    "id": "javascriptreact",
+    "aliases": [
+     "JavaScript JSX",
+     "JavaScript React",
+     "jsx"
+    ],
+    "extensions": [
+     ".jsx"
+    ],
+    "configuration": "./javascript-language-configuration.json"
+   },
+   {
+    "id": "javascript",
+    "aliases": [
+     "JavaScript",
+     "javascript",
+     "js"
+    ],
+    "extensions": [
+     ".js",
+     ".es6",
+     ".mjs",
+     ".cjs",
+     ".pac"
+    ],
+    "filenames": [
+     "jakefile"
+    ],
+    "firstLine": "^#!.*\\bnode",
+    "mimetypes": [
+     "text/javascript"
+    ],
+    "configuration": "./javascript-language-configuration.json"
+   },
+   {
+    "id": "jsx-tags",
+    "aliases": [],
+    "configuration": "./tags-language-configuration.json"
+   }
+  ]
+ }
+}
