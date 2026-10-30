@@ -109,6 +109,25 @@ button.link:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
 
 /* ---------------------------------------------------------------- repo header */
 .repo-header { padding-left: 8px; }
+
+/* ---------------------------------------------------------------- sticky headers (like the native tree's sticky scroll)
+   The repo header sticks to the top while its repo scrolls by, and the group header (Staged Changes /
+   Changes) sticks right below it. Each stays inside its own section, so the next repo pushes it away. */
+.repo-header, .group-header {
+  position: sticky;
+  background-color: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+.repo-header { top: 0; z-index: 3; }
+.group-header { top: var(--row-h); z-index: 2; }
+/* hover colors can be translucent: paint them over the opaque background */
+.repo-header:hover, .group-header:hover {
+  background-color: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  background-image: linear-gradient(var(--vscode-list-hoverBackground), var(--vscode-list-hoverBackground));
+}
+/* shadow under the lowest stuck header, like the native sticky scroll widget */
+.repo-header.stuck-last, .group-header.stuck-last {
+  box-shadow: var(--vscode-scrollbar-shadow, rgba(0, 0, 0, 0.6)) 0 6px 6px -6px;
+}
 .repo-header .repo-name {
   font-weight: 600;
   overflow: hidden;

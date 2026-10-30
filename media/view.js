@@ -136,7 +136,30 @@
     if (document.scrollingElement) document.scrollingElement.scrollTop = scroll;
     if (tipFor && !document.body.contains(tipFor)) hideTip(); // hovered element was replaced
     reportCollapseState();
+    updateStuck();
   }
+
+  /** Mark the lowest header currently stuck to the top, so it can draw the sticky-scroll shadow. */
+  function updateStuck() {
+    let last = null;
+    for (const section of document.querySelectorAll('section.repo')) {
+      const top = section.getBoundingClientRect().top;
+      const header = section.querySelector('.repo-header');
+      if (!header || top >= 0 || section.getBoundingClientRect().bottom <= header.offsetHeight) continue;
+      last = header; // this repo is scrolled under the top: its header is stuck
+      for (const group of section.querySelectorAll('.group')) {
+        const g = group.getBoundingClientRect();
+        if (g.top < header.offsetHeight && g.bottom > header.offsetHeight * 2) last = group.querySelector('.group-header');
+      }
+    }
+    for (const el of document.querySelectorAll('.stuck-last')) if (el !== last) el.classList.remove('stuck-last');
+    if (last) last.classList.add('stuck-last');
+  }
+  let stuckFrame = 0;
+  window.addEventListener('scroll', () => {
+    if (!stuckFrame) stuckFrame = requestAnimationFrame(() => { stuckFrame = 0; updateStuck(); });
+  }, { passive: true });
+  window.addEventListener('resize', () => updateStuck());
 
   /** Drives the title bar toggle: Collapse All ⇄ Expand All, like the native views. */
   let lastAllCollapsed;

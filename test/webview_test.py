@@ -144,6 +144,28 @@ def main():
                   and pg.locator(f'{sec("/ws/front")} .repo-header svg.codicon-git-pull-request-create').count() == 1)
             pg.screenshot(path=str(OUT / 'screenshot.png'), full_page=True)
 
+            # sticky headers while scrolling
+            pg.set_viewport_size({'width': 340, 'height': 260})
+            rect = lambda sel: pg.evaluate('s => { const r = document.querySelector(s).getBoundingClientRect(); return [r.top, r.bottom]; }', sel)
+            page_top = lambda sel: pg.evaluate('s => document.querySelector(s).getBoundingClientRect().top + scrollY', sel)
+            pg.evaluate('y => scrollTo(0, y)', page_top(f"{sec('/ws/front')} .files") + 50)
+            pg.wait_for_timeout(100)
+            check('scrolled: repo header pinned at the top', rect(f"{sec('/ws/front')} .repo-header")[0] == 0)
+            check('scrolled: group header pinned right below it', rect(f"{sec('/ws/front')} .group-header")[0] == 22)
+            check('shadow on the lowest pinned header only', pg.locator('.stuck-last').count() == 1
+                  and pg.locator(f"{sec('/ws/front')} .group-header.stuck-last").count() == 1)
+            pg.locator(f"{sec('/ws/front')} .repo-header .repo-name").hover()
+            hovered = pg.evaluate('s => { const c = getComputedStyle(document.querySelector(s)); return [c.backgroundColor, c.backgroundImage]; }', f"{sec('/ws/front')} .repo-header")
+            check('pinned headers stay opaque, also when hovered', hovered[0] == 'rgb(24, 24, 24)' and 'linear-gradient' in hovered[1])
+            pg.screenshot(path=str(OUT / 'screenshot-sticky.png'))
+            pg.evaluate('y => scrollTo(0, y)', page_top(sec('/ws/infra')) - 10)
+            pg.wait_for_timeout(100)
+            check('next repo pushes the previous headers away', rect(f"{sec('/ws/front')} .repo-header")[1] <= rect(sec('/ws/infra'))[0] + 0.5)
+            pg.evaluate('scrollTo(0, 0)')
+            pg.wait_for_timeout(100)
+            check('back at the top: no shadow', pg.locator('.stuck-last').count() == 0)
+            pg.set_viewport_size({'width': 340, 'height': 760})
+
             # tooltips
             def tip_after_hover(selector, wait=650):
                 pg.mouse.move(0, 0); pg.wait_for_timeout(350)

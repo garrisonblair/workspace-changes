@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.2
+- Repo headers and their Staged Changes / Changes headers stay pinned at the top while scrolling, like the native view's sticky scroll (with its shadow); the next repo pushes them away.
+
 ## 0.5.1
 - Go to File: file type icons now show in Cursor and other editors based on older VS Code versions. Icons are resolved from the active file icon theme with the same rules as VS Code's CSS; font-based themes like Seti are converted to SVG images.
 
