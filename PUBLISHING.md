@@ -67,9 +67,11 @@ No token: the workflow gets a short-lived token from Open VSX using GitHub's OID
 
 Don't add an `OVSX_TOKEN` / `--pat`: a token takes precedence over trusted publishing.
 
-### VS Code Marketplace (off until you turn it on)
+### VS Code Marketplace: trusted publishing (stock VS Code)
 
-1. On <https://marketplace.visualstudio.com/manage> → publisher → **Trusted Publishing**, add a policy for repository `garrisonblair/workspace-changes` and workflow `release.yml`.
-2. Repo **Settings → Secrets and variables → Actions → Variables**: add `VSCE_PUBLISH` = `true`.
+No token either (`vsce publish --oidc`). One-time setup:
 
-The first Marketplace version still has to be uploaded by hand (step 2 above), using the `.vsix` from a GitHub Release or CI run. Azure DevOps personal access tokens, the old method, are retired on 1 December 2026.
+1. Upload the first version by hand: on <https://marketplace.visualstudio.com/manage> → publisher `garrisonblair` → **New extension** → **Visual Studio Code**, upload the `.vsix` from the latest GitHub Release (built by `vsce`; hand-built packages are rejected with TF400898).
+2. Same page → publisher → **Trusted Publishing**: add a policy for owner `garrisonblair`, repository `workspace-changes`, workflow `release.yml`, no environment.
+
+If the Marketplace step fails, the release still goes to Open VSX and GitHub, and the run is marked failed with a message; re-run the job once fixed (`--skip-duplicate` makes re-runs safe). Azure DevOps personal access tokens, the old method, are retired on 1 December 2026.
