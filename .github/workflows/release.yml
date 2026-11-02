@@ -58,7 +58,7 @@ jobs:
 
       - name: Package
         if: steps.version.outputs.release == 'true'
-        run: npx --yes @vscode/vsce@4.0.0 package -o workspace-changes.vsix
+        run: npx --yes @vscode/vsce@4.1.0 package -o workspace-changes.vsix
 
       - name: Publish to Open VSX (trusted publishing)
         id: openvsx
@@ -69,7 +69,7 @@ jobs:
         id: marketplace
         if: steps.version.outputs.release == 'true'
         continue-on-error: true   # still tag + release what Open VSX got; the last step fails the run
-        run: npx --yes @vscode/vsce@4.0.0 publish --oidc --packagePath workspace-changes.vsix --skip-duplicate
+        run: npx --yes @vscode/vsce@4.1.0 publish --oidc --packagePath workspace-changes.vsix --skip-duplicate
 
       - name: Tag and GitHub Release
         if: steps.version.outputs.release == 'true' && steps.openvsx.outcome == 'success'

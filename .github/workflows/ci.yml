@@ -25,7 +25,7 @@ jobs:
           python -m playwright install --with-deps chromium
           python test/webview_test.py "$RUNNER_TEMP"
       - name: Package
-        run: npx --yes @vscode/vsce@4.0.0 package
+        run: npx --yes @vscode/vsce@4.1.0 package
       - uses: actions/upload-artifact@v5
         with:
           name: vsix

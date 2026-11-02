@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.4
+- First release published to the VS Code Marketplace by the release workflow (0.5.3 reached Open VSX only).
+
 ## 0.5.3
 - Published automatically to both the VS Code Marketplace and Open VSX on every release, so VS Code and Cursor keep it up to date.
 
