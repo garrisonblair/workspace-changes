@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.3
+- Published automatically to both the VS Code Marketplace and Open VSX on every release, so VS Code and Cursor keep it up to date.
+
 ## 0.5.2
 - Repo headers and their Staged Changes / Changes headers stay pinned at the top while scrolling, like the native view's sticky scroll (with its shadow); the next repo pushes them away.
 
