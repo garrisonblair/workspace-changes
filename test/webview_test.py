@@ -29,6 +29,7 @@ FILES = {
                 ('working', 'package.json', 'M', 'modified'), ('working', 'Dockerfile', 'M', 'modified')],
     '/ws/front': [('working', 'src/components/layout/Header.tsx', 'M', 'modified'), ('working', 'src/hooks/useAuth.test.ts', 'M', 'modified'),
                   ('working', 'src/features/onboarding/components/steps/illustrations/WelcomeStepIllustration.tsx', 'M', 'modified'),
+                  ('working', 'src/components/composant-non-sortable/administrator/data/skills-comparison-projection-positionnement-bar.tsx', 'M', 'modified'),
                   ('working', 'src/styles/legacy-banner.css', 'D', 'deleted'), ('working', 'README.md', 'M', 'modified'),
                   ('working', '.github/workflows/ci.yml', 'U', 'untracked'), ('working', 'scripts/deploy.sh', 'U', 'untracked')],
 }
@@ -135,6 +136,20 @@ def main():
             dims = deep.evaluate('''r => { const n = r.querySelector('.file-name'), d = r.querySelector('.file-dir');
                 return { nameClipped: n.scrollWidth > n.clientWidth, dirClipped: d.scrollWidth > d.clientWidth, dirW: d.clientWidth }; }''')
             check('long folder path truncates, file name stays whole', not dims['nameClipped'] and dims['dirClipped'])
+            long_row = pg.locator(f'{sec("/ws/front")} .file[data-uri$="positionnement-bar.tsx"]')
+            long_row.hover()
+            pg.wait_for_timeout(50)
+            geo = long_row.evaluate('''r => { const box = r.getBoundingClientRect();
+                const btns = [...r.querySelectorAll('.actions button')].map(b => b.getBoundingClientRect());
+                const letter = r.querySelector('.letter').getBoundingClientRect(); const n = r.querySelector('.file-name');
+                return { rowLeft: box.left, rowRight: box.right, btns: btns.map(b => [b.left, b.right]), letter: [letter.left, letter.right],
+                         nameClipped: n.scrollWidth > n.clientWidth, nameRight: n.getBoundingClientRect().right }; }''')
+            check('long name + hover: all 3 actions and the letter fully inside the row',
+                  len(geo['btns']) == 3 and all(geo['rowLeft'] <= l and r <= geo['rowRight'] for l, r in geo['btns'] + [geo['letter']])
+                  and geo['btns'][-1][1] <= geo['letter'][0])
+            check('long name + hover: the name truncates and never runs under the actions', geo['nameClipped'] and geo['nameRight'] <= geo['btns'][0][0])
+            long_row.screenshot(path=str(OUT / 'screenshot-long-name-hover.png'))
+            pg.mouse.move(0, 0)
             check('repo name not uppercased', pg.locator(f'{sec("/ws/front")} .repo-name').evaluate('e => getComputedStyle(e).textTransform') == 'none')
             hdr_x = pg.locator(f'{sec("/ws/front")} .repo-header .twistie').bounding_box()['x']
             check('repo header indented from the view edge', hdr_x >= 8)

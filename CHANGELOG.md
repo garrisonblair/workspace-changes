@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.5
+- Long file names no longer push the hover actions out of the row: the folder path gives way first, then the name truncates with an ellipsis, like the native view.
+
 ## 0.5.4
 - First release published to the VS Code Marketplace by the release workflow (0.5.3 reached Open VSX only).
 

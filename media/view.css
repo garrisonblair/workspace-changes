@@ -240,15 +240,16 @@ button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-off
 
 .file { padding-left: 26px; }
 #app:not(.show-file-icons) .file { padding-left: 30px; }
-/* the file name never gives up space to its folder path: the path truncates first */
-.file-name { flex: 0 0 auto; max-width: calc(100% - 70px); overflow: hidden; text-overflow: ellipsis; }
+/* when space runs out (long names, hover actions), the folder path gives way first, then the
+   file name truncates with an ellipsis; the actions and status letter always stay visible */
+.file-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .file-dir {
   margin-left: 6px;
   font-size: 0.9em;
   color: var(--vscode-descriptionForeground);
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 0 1 auto;
+  flex: 0 1000000 auto; /* shrinks first: the name only shrinks once the path is gone (its share rounds to 0 until then) */
   min-width: 0;
 }
 .file .spacer { flex: 1 1 0; min-width: 4px; }
