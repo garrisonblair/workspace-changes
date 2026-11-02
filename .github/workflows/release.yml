@@ -60,6 +60,13 @@ jobs:
         if: steps.version.outputs.release == 'true'
         run: npx --yes @vscode/vsce@4.1.0 package -o workspace-changes.vsix
 
+      - name: Upload the .vsix as a run artifact
+        if: steps.version.outputs.release == 'true'
+        uses: actions/upload-artifact@v5
+        with:
+          name: vsix
+          path: workspace-changes.vsix
+
       - name: Publish to Open VSX (trusted publishing)
         id: openvsx
         if: steps.version.outputs.release == 'true'
