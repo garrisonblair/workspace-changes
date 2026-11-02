@@ -47,23 +47,29 @@ If the upload is rejected because the **display name already exists**, change `"
 
 Uninstall the hand-installed build first (its ID is `local.workspace-changes`; having both would register the panel twice), then install *Workspace Changes* from the Extensions view.
 
-## Later releases (automatic, on tag)
+## Releasing (automatic)
 
-`.github/workflows/release.yml` publishes to both registries when you push a tag like `v0.4.2`, then creates a GitHub Release with the `.vsix`.
+`.github/workflows/release.yml` runs on every push to `main`. When `package.json`'s `version` has no `v<version>` tag yet, it tests and packages the extension, publishes it, then creates the tag and a GitHub Release with the `.vsix` (notes taken from that version's `CHANGELOG.md` section). Otherwise it does nothing.
 
-One-time setup:
-
-1. **Marketplace, no token**: on <https://marketplace.visualstudio.com/manage> → your publisher → **Trusted Publishing**, add a policy for repository `garrisonblair/workspace-changes` and workflow `release.yml`. The workflow publishes with `vsce publish --oidc`, so there is no secret to store or rotate.
-   (Azure DevOps personal access tokens, the old method, are retired on 1 December 2026.)
-2. **Open VSX**: repo **Settings → Secrets and variables → Actions → New repository secret**, name `OVSX_TOKEN`, value = an Open VSX token. Without it, the Open VSX step is skipped.
-
-Then for each release:
+To release:
 
 ```sh
-# bump "version" in package.json and add a CHANGELOG.md entry, then:
-git commit -am "Release 0.4.2"
-git tag v0.4.2
-git push && git push --tags
+# bump "version" in package.json and add a "## <version>" section to CHANGELOG.md, then:
+git commit -am "Release 0.5.3"
+git push
 ```
 
-The workflow refuses to publish if the tag doesn't match `package.json`'s version.
+Installed copies update themselves: VS Code and Cursor check the registries and auto-update extensions by default.
+
+### Open VSX: trusted publishing (set up)
+
+No token: the workflow gets a short-lived token from Open VSX using GitHub's OIDC identity (`ovsx publish --trusted-publishing`). The trusted publisher registered on open-vsx.org (Settings → Trusted Publishers) must name repository `garrisonblair/workspace-changes` and workflow file `release.yml`, with no deployment environment (or add the same `environment:` to the job).
+
+Don't add an `OVSX_TOKEN` / `--pat`: a token takes precedence over trusted publishing.
+
+### VS Code Marketplace (off until you turn it on)
+
+1. On <https://marketplace.visualstudio.com/manage> → publisher → **Trusted Publishing**, add a policy for repository `garrisonblair/workspace-changes` and workflow `release.yml`.
+2. Repo **Settings → Secrets and variables → Actions → Variables**: add `VSCE_PUBLISH` = `true`.
+
+The first Marketplace version still has to be uploaded by hand (step 2 above), using the `.vsix` from a GitHub Release or CI run. Azure DevOps personal access tokens, the old method, are retired on 1 December 2026.
