@@ -180,7 +180,7 @@ function makeVscode(workspaceRoot) {
   const commands = new Map();
   const executed = [];
   const context = new Map();
-  const ui = { quickPicks: [], inputBoxes: [], errors: [], infos: [], warnings: [], opened: [] };
+  const ui = { quickPicks: [], inputBoxes: [], errors: [], infos: [], warnings: [], opened: [], progress: [] };
   let provider;
 
   const vscode = {
@@ -212,6 +212,7 @@ function makeVscode(workspaceRoot) {
     window: {
       registerWebviewViewProvider: (id, p) => { provider = { id, p }; return { dispose() {} }; },
       activeTextEditor: undefined,
+      withProgress: async (opts, fn) => { ui.progress.push(opts); ui.progressActive = (ui.progressActive || 0) + 1; try { return await fn({ report() {} }); } finally { ui.progressActive -= 1; } },
       onDidChangeActiveTextEditor: (() => { const e = new EventEmitter(); ui.fireActiveEditor = (ed) => e.fire(ed); return e.event; })(),
       showErrorMessage: async (m) => { ui.errors.push(m); },
       showInformationMessage: async (m) => { ui.infos.push(m); const r = ui.nextInfo; ui.nextInfo = undefined; return r; },
@@ -989,6 +990,106 @@ async function e2e() {
     assert.ok(pkg.contributes.commands.some((c) => c.command === 'workspaceChanges.quickOpen'));
     assert.deepStrictEqual(pkg.contributes.keybindings, [{ command: 'workspaceChanges.quickOpen', key: 'ctrl+alt+p', mac: 'cmd+alt+p' }]);
     assert.ok(pkg.contributes.menus['view/title'].some((e) => e.command === 'workspaceChanges.quickOpen'));
+  });
+
+  // ------------------------------------------------------------ pending animations
+  /** Replace a git command by one that waits until released; returns { release, fail, started }. */
+  const hold = (id) => {
+    const original = fake.commands.get(id);
+    let release; let fail; let markStarted;
+    const started = new Promise((r) => { markStarted = r; });
+    const gate = new Promise((res, rej) => { release = res; fail = rej; });
+    fake.commands.set(id, async (...args) => { markStarted(); try { await gate; } finally { fake.commands.set(id, original); } return original(...args); });
+    return { release: () => release(), fail: (e) => fail(e), started };
+  };
+  const repoModel = async (root) => (await model()).repos.find((r) => r.root === root);
+
+  await t('pending: Commit spins like native ("Committing Changes..."), then returns to normal', async () => {
+    fake.config.criteria = []; fake.config.hiddenRepositories = [];
+    fs.writeFileSync(path.join(repos.legacy, 'pending.txt'), 'x'); sh(repos.legacy, 'git add pending.txt'); apiRepo(repos.legacy)._reload();
+    await model();
+    const h = hold('git.commit');
+    fake.ui.progress.length = 0;
+    const done = panel.send({ type: 'commit', root: repos.legacy, value: 'feat: slow hooks' });
+    await h.started;
+    let r = (await repoModel(repos.legacy));
+    assert.deepStrictEqual(r.primary, { kind: 'commit', label: 'Commit', enabled: false, busy: true, tip: 'Committing Changes...' });
+    assert.strictEqual(r.busy.commit, true);
+    assert.strictEqual(fake.ui.progressActive, 1, 'progress bar on the view while it runs');
+    assert.deepStrictEqual(fake.ui.progress[0], { location: { viewId: 'workspaceChanges.view' } });
+    h.release();
+    await done;
+    r = (await repoModel(repos.legacy));
+    assert.strictEqual(r.busy.commit, false);
+    assert.ok(!r.primary.busy);
+    assert.strictEqual(fake.ui.progressActive, 0);
+  });
+
+  await t('pending: Commit & Push keeps the Commit button spinning through the push', async () => {
+    sh(repos.legacy, 'git add -A && git commit -qm "clean slate" && git push -q'); // nothing else pending: after the commit the repo is clean + ahead
+    fs.writeFileSync(path.join(repos.legacy, 'pending2.txt'), 'x'); sh(repos.legacy, 'git add pending2.txt'); apiRepo(repos.legacy)._reload();
+    await panel.send({ type: 'input', root: repos.legacy, value: 'feat: and push' });
+    const h = hold('git.push');
+    const done = fake.commands.get('workspaceChanges.commitAndPush')(menuCtx('commit', repos.legacy));
+    await h.started; // the commit is done, its post-commit push is running
+    const r = (await repoModel(repos.legacy));
+    assert.strictEqual(r.changes, 0);
+    assert.deepStrictEqual([r.primary.kind, r.primary.busy, r.primary.tip], ['commit', true, 'Committing & Pushing Changes...'], 'not the Sync button');
+    h.release();
+    await done;
+    assert.ok(!(await repoModel(repos.legacy)).busy.commit);
+  });
+
+  await t('pending: Publish / Sync / Pull / Push from the header spin the sync state', async () => {
+    sh(repos.legacy, 'git checkout -q -b feat/pending'); apiRepo(repos.legacy)._reload();
+    await model();
+    let h = hold('git.publish');
+    let done = panel.send({ type: 'primary', root: repos.legacy, value: '' });
+    await h.started;
+    let r = (await repoModel(repos.legacy));
+    assert.deepStrictEqual([r.primary.kind, r.primary.busy, r.primary.tip], ['publish', true, 'Publishing Branch "feat/pending"...']);
+    assert.deepStrictEqual([r.busy.sync, r.busy.syncDetail], [true, 'publish']);
+    h.release(); await done;
+    sh(repos.legacy, 'echo y > y && git add y && git commit -qm y'); apiRepo(repos.legacy)._reload();
+    h = hold('git.push');
+    done = panel.send({ type: 'repoAction', root: repos.legacy, action: 'push' });
+    await h.started;
+    r = (await repoModel(repos.legacy));
+    assert.deepStrictEqual([r.primary.kind, r.primary.busy, r.primary.tip, r.busy.syncDetail], ['sync', true, 'Synchronizing Changes...', 'push']);
+    h.release(); await done;
+    assert.ok(!(await repoModel(repos.legacy)).busy.sync);
+  });
+
+  await t('pending: native menu entries — push/pull/sync/commit spin, fetch = progress bar only, others nothing', async () => {
+    const cases = [['git.pullRebase', 'sync', 'pull'], ['git.pushForce', 'sync', 'push'], ['git.syncRebase', 'sync', 'sync'], ['git.commitStagedAmend', 'commit', null], ['git.fetchPrune', null, null], ['git.stashPop', undefined, null]];
+    for (const [id, kind, detail] of cases) {
+      const had = fake.commands.has(id);
+      if (!had) fake.commands.set(id, async () => {});
+      const h = hold(id);
+      fake.ui.progress.length = 0;
+      const done = fake.commands.get(`workspaceChanges.${id}`)(menuCtx('repo', repos.legacy));
+      await h.started;
+      const r = (await repoModel(repos.legacy));
+      if (kind === 'sync') assert.deepStrictEqual([r.busy.sync, r.busy.syncDetail], [true, detail], id);
+      else if (kind === 'commit') assert.strictEqual(r.busy.commit, true, id);
+      else assert.deepStrictEqual([r.busy.sync, r.busy.commit], [false, false], id);
+      assert.strictEqual(fake.ui.progress.length, kind === undefined ? 0 : 1, `${id}: progress bar`);
+      h.release(); await done;
+      if (!had) fake.commands.delete(id);
+    }
+  });
+
+  await t('pending: a failed operation clears the spinner', async () => {
+    const h = hold('git.pull');
+    const done = panel.send({ type: 'repoAction', root: repos.legacy, action: 'pull' }).catch(() => {});
+    await h.started;
+    assert.ok((await repoModel(repos.legacy)).busy.sync);
+    h.fail(new Error('auth failed'));
+    await done;
+    assert.ok(!(await repoModel(repos.legacy)).busy.sync);
+    assert.strictEqual(fake.ui.progressActive, 0);
+    fake.ui.errors.length = 0;
+    fake.config.criteria = ['changes', 'nonDefaultBranch'];
   });
 
   await t('no unexpected errors surfaced', () => assert.deepStrictEqual(fake.ui.errors, []));

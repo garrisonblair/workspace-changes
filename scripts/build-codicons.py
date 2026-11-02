@@ -1,7 +1,7 @@
 """Generate media/codicons.js from the official vscode-codicons SVG sources.
 Usage: python3 scripts/build-codicons.py <path-to-vscode-codicons-checkout>"""
 import json, pathlib, re, sys
-NAMES = ['check', 'add', 'remove', 'discard', 'go-to-file', 'chevron-right', 'chevron-down', 'git-branch',
+NAMES = ['loading', 'check', 'add', 'remove', 'discard', 'go-to-file', 'chevron-right', 'chevron-down', 'git-branch',
          'sync', 'cloud-upload', 'ellipsis', 'refresh', 'arrow-up', 'arrow-down', 'git-pull-request-create']
 src = pathlib.Path(sys.argv[1]) / 'src' / 'icons'
 out = {}

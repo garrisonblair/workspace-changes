@@ -17,8 +17,10 @@
     chevronRight: C['chevron-right'], chevronDown: C['chevron-down'], check: C.check, add: C.add, remove: C.remove,
     discard: C.discard, openFile: C['go-to-file'], branch: C['git-branch'], sync: C.sync, cloudUp: C['cloud-upload'],
     more: C.ellipsis, caretDown: C['chevron-down'], arrowUp: C['arrow-up'], arrowDown: C['arrow-down'],
-    pr: C['git-pull-request-create'],
+    pr: C['git-pull-request-create'], loading: C.loading,
   };
+  /** codicon with VS Code's `~spin` modifier (codicon-modifier-spin) */
+  const spin = (svg) => (svg || '').replace('class="codicon ', 'class="codicon codicon-modifier-spin ');
 
   // ------------------------------------------------------------------ helpers
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -41,22 +43,37 @@
       ? `Detached HEAD at ${r.branch}`
       : (r.isDefault ? `${r.branch} (default branch)` : `${r.branch}: not the default branch (${r.defaultBranch || '?'}${r.defaultDetected ? '' : ', guessed'})`);
 
+    const b = r.busy || {};
     const actions = [];
     if (r.canCreatePr) actions.push(btn('createPr', I.pr, 'Create Pull Request'));
-    if (r.unpublished && r.hasRemote) actions.push(btn('publish', I.cloudUp, 'Publish Branch'));
-    else if (r.ahead || r.behind) actions.push(btn('sync', I.sync, `Synchronize Changes ${sync.join(' ')}`));
-    if (r.changes > 0) actions.push(btn('commit', I.check, 'Commit'));
+    if (r.unpublished && r.hasRemote) {
+      actions.push(b.sync
+        ? btn('publish', spin(I.sync), `Publishing Branch "${r.branch}"...`, 'disabled data-busy')
+        : btn('publish', I.cloudUp, 'Publish Branch'));
+    } else if (r.ahead || r.behind || b.sync) {
+      actions.push(b.sync
+        ? btn('sync', spin(I.sync), 'Synchronizing Changes...', 'disabled data-busy')
+        : btn('sync', I.sync, `Synchronize Changes ${sync.join(' ')}`));
+    }
+    if (r.changes > 0 || b.commit) {
+      actions.push(b.commit
+        ? btn('commit', I.check, 'Committing Changes...', 'disabled')
+        : btn('commit', I.check, 'Commit'));
+    }
     actions.push(btn('more', I.more, 'More Actions…'));
 
     const counts = [];
-    if (r.behind) counts.push(`<button class="link ahead-behind" data-act="pull" data-tip="Pull ${r.behind} incoming commit${r.behind > 1 ? 's' : ''}">${I.arrowDown}<span>${r.behind}</span></button>`);
-    if (r.ahead) counts.push(`<button class="link ahead-behind" data-act="push" data-tip="Push ${r.ahead} outgoing commit${r.ahead > 1 ? 's' : ''}">${I.arrowUp}<span>${r.ahead}</span></button>`);
+    const syncOff = b.sync ? ` disabled data-tip="${b.syncDetail === 'pull' ? 'Pulling' : b.syncDetail === 'push' ? 'Pushing' : 'Synchronizing'} Changes..."` : '';
+    if (r.behind) counts.push(`<button class="link ahead-behind" data-act="pull" ${syncOff || `data-tip="Pull ${r.behind} incoming commit${r.behind > 1 ? 's' : ''}"`}>${I.arrowDown}<span>${r.behind}</span></button>`);
+    if (r.ahead) counts.push(`<button class="link ahead-behind" data-act="push" ${syncOff || `data-tip="Push ${r.ahead} outgoing commit${r.ahead > 1 ? 's' : ''}"`}>${I.arrowUp}<span>${r.ahead}</span></button>`);
 
     let html = `<section class="repo${collapsed ? ' collapsed' : ''}" data-root="${esc(r.root)}">`;
     html += `<div class="row repo-header" data-toggle="${esc(key)}" data-vscode-context="${ctx({ webviewSection: 'repo', root: r.root, nondefault: !r.isDefault, dirty: r.changes > 0 })}">`
       + `<span class="twistie">${collapsed ? I.chevronRight : I.chevronDown}</span>`
       + `<span class="repo-name" data-tip="${esc(r.root)}">${esc(r.label)}</span>`
-      + `<button class="link branch${r.isDefault ? '' : ' nondefault'}" data-act="checkoutBranch" data-tip="${esc(branchTitle)}\nClick to checkout another branch">${I.branch}<span class="branch-name">${esc(r.branch)}${dirtyStar}</span></button>`
+      + (b.checkout
+        ? `<button class="link branch${r.isDefault ? '' : ' nondefault'}" data-act="checkoutBranch" disabled data-tip="Checking Out Branch...">${spin(I.loading)}<span class="branch-name">${esc(r.branch)}${dirtyStar}</span></button>`
+        : `<button class="link branch${r.isDefault ? '' : ' nondefault'}" data-act="checkoutBranch" data-tip="${esc(branchTitle)}\nClick to checkout another branch">${I.branch}<span class="branch-name">${esc(r.branch)}${dirtyStar}</span></button>`)
       + counts.join('')
       + (r.unpublished ? '<span class="tag" data-tip="This branch has no upstream branch on the remote yet">unpublished</span>' : '')
       + `<span class="spacer"></span><span class="actions always">${actions.join('')}</span>`
@@ -69,10 +86,11 @@
       html += '<div class="repo-body">';
       html += `<div class="input-wrap"><textarea rows="1" class="message" data-root="${esc(r.root)}" placeholder="${esc(placeholder)}" aria-label="Commit message for ${esc(r.label)}" spellcheck="true">${esc(draft)}</textarea></div>`;
       const p = r.primary;
-      const pIcon = p.kind === 'publish' ? I.cloudUp : p.kind === 'sync' ? I.sync : I.check;
-      const pTip = p.kind === 'publish' ? `Publish Branch "${r.branch}"` : p.kind === 'sync' ? `Synchronize Changes (${sync.join(' ')})` : `Commit Changes on "${r.branch}"`;
+      // like the native action button: the icon becomes a spinning `sync` while the operation runs
+      const pIcon = p.busy ? spin(I.sync) : p.kind === 'publish' ? I.cloudUp : p.kind === 'sync' ? I.sync : I.check;
+      const pTip = p.busy ? p.tip : p.kind === 'publish' ? `Publish Branch "${r.branch}"` : p.kind === 'sync' ? `Synchronize Changes (${sync.join(' ')})` : `Commit Changes on "${r.branch}"`;
       html += `<div class="commit-row"><button class="primary" data-act="primary" data-tip="${esc(pTip)}" ${p.enabled ? '' : 'disabled'}>${pIcon}<span>${esc(p.label)}</span></button>`
-        + `<button class="primary dropdown" data-act="commitMenu" data-tip="More Actions…" aria-label="More commit actions" data-vscode-context="${ctx({ webviewSection: 'commit', root: r.root })}" ${r.changes > 0 ? '' : 'disabled'}>${I.caretDown}</button></div>`;
+        + `<button class="primary dropdown" data-act="commitMenu" data-tip="More Actions…" aria-label="More commit actions" data-vscode-context="${ctx({ webviewSection: 'commit', root: r.root })}" ${r.changes > 0 && !p.busy ? '' : 'disabled'}>${I.caretDown}</button></div>`;
 
       for (const g of r.groups) {
         const gkey = `${key}|${g.key}`;

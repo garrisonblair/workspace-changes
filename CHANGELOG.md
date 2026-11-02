@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.6
+- Pending states like the native view: while committing, the Commit button is disabled with a spinning icon ("Committing Changes...", "Committing & Pushing Changes..."); publish, sync, pull and push spin the sync button and disable ↓/↑; switching to the default branch spins the branch. A progress bar runs at the top of the panel while an operation is running. Covers operations started from the panel and its menus.
+
 ## 0.5.5
 - Long file names no longer push the hover actions out of the row: the folder path gives way first, then the name truncates with an ellipsis, like the native view.
 

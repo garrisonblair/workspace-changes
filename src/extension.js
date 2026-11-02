@@ -97,6 +97,7 @@ class WorkspaceChangesView {
     this.context = context;
     this.api = api;
     this.defaultBranchCache = new Map(); // root -> Promise<string|undefined>
+    this.ops = new Map(); // root -> { commit, commitDetail, sync, syncDetail, checkout } (see track())
     this.repoSubs = new Map(); // root -> Disposable
     this.showAll = false;
     this.view = undefined;
@@ -254,14 +255,27 @@ class WorkspaceChangesView {
     const groups = F.groupsOf(repo.state);
     const root = repo.rootUri.fsPath;
     const hasRemote = (repo.state.remotes || []).length > 0;
+    const ops = this.ops.get(root) || {};
+    const busy = { commit: !!ops.commit, sync: !!ops.sync, syncDetail: ops.syncDetail || null, checkout: !!ops.checkout };
+    // Same states as the native action button (extensions/git/src/actionButton.ts, postCommitCommands.ts):
+    // while committing (including its post-commit push/sync) the Commit button stays, spinning and disabled.
     let primary;
-    if (facts.changes > 0) primary = { kind: 'commit', label: 'Commit', enabled: true };
-    else if (facts.unpublished && hasRemote) primary = { kind: 'publish', label: 'Publish Branch', enabled: true };
-    else if (facts.ahead || facts.behind) {
+    if (ops.commit) {
+      const tip = ops.commitDetail === 'push' ? 'Committing & Pushing Changes...'
+        : ops.commitDetail === 'sync' ? 'Committing & Synchronizing Changes...' : 'Committing Changes...';
+      primary = { kind: 'commit', label: 'Commit', enabled: false, busy: true, tip };
+    } else if (facts.changes > 0) primary = { kind: 'commit', label: 'Commit', enabled: !ops.checkout };
+    else if (facts.unpublished && hasRemote) {
+      primary = ops.sync
+        ? { kind: 'publish', label: 'Publish Branch', enabled: false, busy: true, tip: `Publishing Branch "${facts.branch}"...` }
+        : { kind: 'publish', label: 'Publish Branch', enabled: !ops.checkout };
+    } else if (facts.ahead || facts.behind) {
       let label = 'Sync Changes';
       if (facts.behind) label += ` ${facts.behind}↓`;
       if (facts.ahead) label += ` ${facts.ahead}↑`;
-      primary = { kind: 'sync', label, enabled: true };
+      primary = ops.sync
+        ? { kind: 'sync', label, enabled: false, busy: true, tip: 'Synchronizing Changes...' }
+        : { kind: 'sync', label, enabled: !ops.checkout };
     } else primary = { kind: 'commit', label: 'Commit', enabled: false };
 
     return {
@@ -282,6 +296,7 @@ class WorkspaceChangesView {
       staged: groups.index.length,
       inputValue: repo.inputBox ? repo.inputBox.value : '',
       primary,
+      busy,
       groups: GROUPS.filter((g) => groups[g.key].length).map((g) => {
         const all = groups[g.key].slice().sort((a, b) => a.uri.fsPath.localeCompare(b.uri.fsPath));
         return {
@@ -443,6 +458,46 @@ class WorkspaceChangesView {
 // publish prompts, post-commit push/sync, error dialogs) is identical to native.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// pending operations: drive the spinners and the view's progress bar, like the native view
+// (actionButton.ts: commit / sync / checkout "in progress" states). The Git extension API does not
+// expose running operations, so this covers operations started from this panel and its menus.
+// ---------------------------------------------------------------------------
+
+let trackingView;
+
+/** Kind of in-progress state a native git command puts the repo in (null: none, just a progress bar). */
+function operationKind(nativeId) {
+  if (/^git\.commit/.test(nativeId)) return { kind: 'commit', detail: 'commit' };
+  if (nativeId === 'git.publish') return { kind: 'sync', detail: 'publish' };
+  if (/^git\.(push|pull|sync)/.test(nativeId)) return { kind: 'sync', detail: nativeId.slice(4).replace(/[A-Z].*$/, '') };
+  if (/^git\.fetch/.test(nativeId)) return { kind: null };
+  return undefined; // interactive / instant commands: no progress
+}
+
+/** Run fn while `kind` is in progress for the repo: spinner state in the panel + progress bar on the view. */
+async function track(repo, kind, detail, fn) {
+  const view = trackingView;
+  if (!view) return fn();
+  const root = repo.rootUri.fsPath;
+  const ops = view.ops.get(root) || {};
+  view.ops.set(root, ops);
+  if (kind) {
+    ops[kind] = (ops[kind] || 0) + 1;
+    ops[`${kind}Detail`] = detail;
+    view.refresh();
+  }
+  try {
+    return await vscode.window.withProgress({ location: { viewId: VIEW_ID } }, () => fn());
+  } finally {
+    if (kind) {
+      ops[kind] -= 1;
+      if (!ops[kind]) { delete ops[kind]; delete ops[`${kind}Detail`]; }
+      view.refresh();
+    }
+  }
+}
+
 /**
  * Commit through `git.commit` / `git.commitAmend`. The native command reads the message
  * from the repository's input box, so we put the message there first.
@@ -453,26 +508,30 @@ async function doCommit(entry, message, mode = 'commit') {
   const before = repo.state.HEAD && repo.state.HEAD.commit;
   if (repo.inputBox && typeof message === 'string') repo.inputBox.value = message;
   // git.commit's 2nd argument is the post-commit *command id* (see postCommitCommands.ts executePostCommitCommand)
-  if (mode === 'amend') await git('git.commitAmend', repo);
-  else if (mode === 'push') await git('git.commit', repo, 'git.push');
-  else if (mode === 'sync') await git('git.commit', repo, 'git.sync');
-  else await git('git.commit', repo);
+  await track(repo, 'commit', mode, async () => {
+    if (mode === 'amend') await git('git.commitAmend', repo);
+    else if (mode === 'push') await git('git.commit', repo, 'git.push');
+    else if (mode === 'sync') await git('git.commit', repo, 'git.sync');
+    else await git('git.commit', repo);
+  });
   const after = repo.state.HEAD && repo.state.HEAD.commit;
   return !!after && after !== before;
 }
 
+const unpublished = (e) => !!(e.repo.state.HEAD && !e.repo.state.HEAD.upstream && e.repo.state.HEAD.name);
+
 const actions = {
   stageAll: (e) => git('git.stageAll', e.repo),
   unstageAll: (e) => git('git.unstageAll', e.repo),
-  push: (e) => (e.repo.state.HEAD && !e.repo.state.HEAD.upstream && e.repo.state.HEAD.name ? git('git.publish', e.repo) : git('git.push', e.repo)),
-  pull: (e) => git('git.pull', e.repo),
-  sync: (e) => (e.repo.state.HEAD && !e.repo.state.HEAD.upstream && e.repo.state.HEAD.name ? git('git.publish', e.repo) : git('git.sync', e.repo)),
-  publish: (e) => git('git.publish', e.repo),
+  push: (e) => (unpublished(e) ? actions.publish(e) : track(e.repo, 'sync', 'push', () => git('git.push', e.repo))),
+  pull: (e) => track(e.repo, 'sync', 'pull', () => git('git.pull', e.repo)),
+  sync: (e) => (unpublished(e) ? actions.publish(e) : track(e.repo, 'sync', 'sync', () => git('git.sync', e.repo))),
+  publish: (e) => track(e.repo, 'sync', 'publish', () => git('git.publish', e.repo)),
   checkoutBranch: (e) => git('git.checkout', e.repo),
   checkoutDefault(e) {
     const target = e.facts.defaultBranch;
     if (!target) { vscode.window.showWarningMessage('Could not determine the default branch.'); return; }
-    return git('git.checkout', e.repo, target);
+    return track(e.repo, 'checkout', target, () => git('git.checkout', e.repo, target));
   },
   async createPr(e) {
     const head = e.repo.state.HEAD || {};
@@ -616,7 +675,10 @@ function registerCommands(context, view, api) {
     context.subscriptions.push(vscode.commands.registerCommand(w.id, async (arg) => {
       if (w.noRepoArg) return vscode.commands.executeCommand(w.native);
       const e = await pickRepo(view, arg);
-      if (e) return vscode.commands.executeCommand(w.native, e.repo.rootUri);
+      if (!e) return;
+      const op = operationKind(w.native);
+      if (!op) return vscode.commands.executeCommand(w.native, e.repo.rootUri);
+      return track(e.repo, op.kind, op.detail, () => vscode.commands.executeCommand(w.native, e.repo.rootUri));
     }));
   }
   reg('showAll', () => view.setShowAll(true));
@@ -700,6 +762,7 @@ function registerCommands(context, view, api) {
 async function activate(context) {
   const api = await getGitApi();
   const view = new WorkspaceChangesView(context, api);
+  trackingView = view;
   context.subscriptions.push(vscode.window.registerWebviewViewProvider(VIEW_ID, view, {
     webviewOptions: { retainContextWhenHidden: true },
   }));

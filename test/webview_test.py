@@ -308,6 +308,36 @@ def main():
             check('light theme uses the icon theme\'s light colors', ts_light['color'] != ts['color'] and ts_light['content'] == ts['content'])
             pg.evaluate("document.body.className = 'vscode-dark'")
 
+            # operations in progress
+            mb = json.loads(json.dumps(model))
+            mb['repos'][0]['primary'] = {'kind': 'commit', 'label': 'Commit', 'enabled': False, 'busy': True, 'tip': 'Committing Changes...'}
+            mb['repos'][0]['busy'] = {'commit': True, 'sync': False, 'syncDetail': None, 'checkout': False}
+            mb['repos'][2]['busy'] = {'commit': False, 'sync': True, 'syncDetail': 'pull', 'checkout': False}
+            mb['repos'][3]['primary'] = {'kind': 'sync', 'label': 'Sync Changes 3↓', 'enabled': False, 'busy': True, 'tip': 'Synchronizing Changes...'}
+            mb['repos'][3]['busy'] = {'commit': False, 'sync': True, 'syncDetail': 'sync', 'checkout': False}
+            mb['repos'][1]['busy'] = {'commit': False, 'sync': False, 'syncDetail': None, 'checkout': True}
+            send({'type': 'render', 'model': mb})
+            prim = pg.locator(f'{sec("/ws/api")} button[data-act=primary]')
+            check('committing: Commit button disabled with a spinning sync icon',
+                  prim.is_disabled() and prim.locator('svg.codicon-sync.codicon-modifier-spin').count() == 1
+                  and prim.locator('svg').evaluate('e => getComputedStyle(e).animationName') == 'codicon-spin')
+            check('committing: dropdown and header ✓ disabled', pg.locator(f'{sec("/ws/api")} button[data-act=commitMenu]').is_disabled()
+                  and pg.locator(f'{sec("/ws/api")} .repo-header [data-act=commit]').is_disabled())
+            n = pg.evaluate('window.__posted.length')
+            prim.click(force=True)
+            check('clicking a busy button does nothing', pg.evaluate('window.__posted.length') == n)
+            check('syncing: header sync icon spins, Sync button spins', pg.locator(f'{sec("/ws/front")} .repo-header [data-act=sync] svg.codicon-modifier-spin').count() == 1
+                  and pg.locator(f'{sec("/ws/infra")} button[data-act=primary] svg.codicon-modifier-spin').count() == 1)
+            check('syncing: ↓/↑ disabled', all(pg.locator(f'{sec("/ws/front")} .ahead-behind').nth(i).is_disabled() for i in range(2)))
+            check('checking out: branch shows the loading spinner', pg.locator(f'{sec("/ws/billing")} .branch svg.codicon-loading.codicon-modifier-spin').count() == 1)
+            pg.mouse.move(0, 0); pg.wait_for_timeout(350)
+            prim.hover(force=True); pg.wait_for_timeout(650)
+            check('tooltip on the busy button: "Committing Changes..."', pg.locator('.hover-tip').is_visible() and pg.locator('.hover-tip').inner_text() == 'Committing Changes...')
+            pg.mouse.move(0, 0)
+            pg.screenshot(path=str(OUT / 'screenshot-pending.png'), clip={'x': 0, 'y': 0, 'width': 340, 'height': 200})
+            send({'type': 'render', 'model': model})
+            check('done: buttons back to normal', not prim.is_disabled() and prim.locator('svg.codicon-modifier-spin').count() == 0)
+
             # SVG (Material-style) theme
             harness_path.write_text(harness(svgt['css'], 'vscode-dark'))
             pg.goto(f'{base}/_harness.html')
