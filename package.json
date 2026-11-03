@@ -2,7 +2,7 @@
   "name": "workspace-changes",
   "displayName": "Workspace Changes",
   "description": "A Source Control panel for multi-repo workspaces: shows only the repos you care about (changes, non-default branch, ahead/behind), each with its own native-looking commit box, file icons and Git menus.",
-  "version": "0.5.6",
+  "version": "1.0.0",
   "publisher": "garrisonblair",
   "author": {
     "name": "Garrison Blair"

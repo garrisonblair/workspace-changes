@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.0
+- Sync status in the repo header like the native view: `⟳ 4↓ 0↑`, both counts whenever there is anything to pull or push (only `↓` for read-only remotes), with the native tooltips ("Pull 4 commits from origin/main"). Click `↓` to pull, `↑` to push, `⟳` (or a `0`) to sync; it spins while syncing. It replaces the separate sync button next to Commit.
+
 ## 0.5.6
 - Pending states like the native view: while committing, the Commit button is disabled with a spinning icon ("Committing Changes...", "Committing & Pushing Changes..."); publish, sync, pull and push spin the sync button and disable ↓/↑; switching to the default branch spins the branch. A progress bar runs at the top of the panel while an operation is running. Covers operations started from the panel and its menus.
 

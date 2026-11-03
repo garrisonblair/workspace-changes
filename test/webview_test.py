@@ -53,6 +53,7 @@ def make_model(classes):
         return {'root': root, 'label': label, 'branch': branch, 'detached': False, 'isDefault': is_default,
                 'defaultBranch': 'main', 'defaultDetected': True, 'ahead': ahead, 'behind': behind,
                 'unpublished': unpublished, 'hasUpstream': not unpublished, 'hasRemote': True, 'canCreatePr': pr,
+                'upstream': None if unpublished else f'origin/{branch}', 'readOnlyRemote': False,
                 'changes': changes, 'staged': sum(g['count'] for g in groups if g['key'] == 'index'), 'inputValue': '',
                 'primary': primary or {'kind': 'commit', 'label': 'Commit', 'enabled': changes > 0}, 'groups': groups}
     return {'mac': True, 'total': 23, 'showAll': False, 'textFilter': '', 'fileIcons': True, 'repos': [
@@ -193,8 +194,9 @@ def main():
             check('tooltip on … icon', tip_after_hover(f'{sec("/ws/front")} .repo-header [data-act=more]') == 'More Actions…')
             check('tooltip on branch explains + hints', 'not the default branch' in (tip_after_hover(f'{sec("/ws/front")} .repo-header .branch') or '')
                   and 'Click to checkout another branch' in tip_after_hover(f'{sec("/ws/front")} .repo-header .branch'))
-            check('tooltip on ↓ / ↑', tip_after_hover(f'{sec("/ws/front")} [data-act=pull]') == 'Pull 1 incoming commit'
-                  and tip_after_hover(f'{sec("/ws/front")} [data-act=push]') == 'Push 2 outgoing commits')
+            check('tooltip on ↓ / ↑ / sync icon (native wording)', tip_after_hover(f'{sec("/ws/front")} [data-act=pull]') == 'Pull 1 commit from origin/feat/new-header'
+                  and tip_after_hover(f'{sec("/ws/front")} [data-act=push]') == 'Push 2 commits to origin/feat/new-header'
+                  and tip_after_hover(f'{sec("/ws/front")} .sync-icon') == 'Pull 1 and push 2 commits between origin/feat/new-header')
             check('tooltip on primary button', tip_after_hover(f'{sec("/ws/front")} button[data-act=primary]') == 'Commit Changes on "feat/new-header"')
             pg.locator(f'{sec("/ws/front")} .file').first.hover(); pg.wait_for_timeout(650)
             check('tooltip on file row = full path + status', pg.locator('.hover-tip').inner_text() == 'src/components/layout/Header.tsx • modified')
@@ -270,6 +272,18 @@ def main():
             check('click ↓1 → pull', last() == {'type': 'repoAction', 'root': '/ws/front', 'action': 'pull'})
             pg.locator(f'{sec("/ws/front")} .repo-header [data-act=push]').click()
             check('click ↑2 → push', last() == {'type': 'repoAction', 'root': '/ws/front', 'action': 'push'})
+            counts = lambda root: pg.locator(f'{sec(root)} .sync-status .sync-count').all_inner_texts()
+            check('sync status like native: "⟳ 1↓ 2↑"', counts('/ws/front') == ['1↓', '2↑'] and pg.locator(f'{sec("/ws/front")} .sync-status .sync-icon').count() == 1)
+            check('both counts even when one is 0: "⟳ 3↓ 0↑"', counts('/ws/infra') == ['3↓', '0↑']
+                  and pg.locator(f'{sec("/ws/infra")} .sync-count').nth(1).get_attribute('data-act') == 'sync')
+            check('in sync (0/0): no sync status', pg.locator(f'{sec("/ws/api")} .sync-status').count() == 0)
+            check('no separate sync button next to commit any more', pg.locator('.repo-header .actions [data-act=sync]').count() == 0)
+            pg.locator(f'{sec("/ws/infra")} .sync-icon').click()
+            check('click ⟳ → sync', last() == {'type': 'repoAction', 'root': '/ws/infra', 'action': 'sync'})
+            ro = json.loads(json.dumps(model)); ro['repos'][3]['readOnlyRemote'] = True
+            send({'type': 'render', 'model': ro})
+            check('read-only remote: only "3↓", like native', counts('/ws/infra') == ['3↓'])
+            send({'type': 'render', 'model': model})
             pg.locator(f'{sec("/ws/front")} .repo-header [data-act=createPr]').click()
             check('click PR icon → createPr', last() == {'type': 'repoAction', 'root': '/ws/front', 'action': 'createPr'})
             check('no PR button on default branch', pg.locator(f'{sec("/ws/api")} [data-act=createPr]').count() == 0)
@@ -326,9 +340,9 @@ def main():
             n = pg.evaluate('window.__posted.length')
             prim.click(force=True)
             check('clicking a busy button does nothing', pg.evaluate('window.__posted.length') == n)
-            check('syncing: header sync icon spins, Sync button spins', pg.locator(f'{sec("/ws/front")} .repo-header [data-act=sync] svg.codicon-modifier-spin').count() == 1
+            check('syncing: header sync icon spins, Sync button spins', pg.locator(f'{sec("/ws/front")} .repo-header .sync-icon svg.codicon-modifier-spin').count() == 1
                   and pg.locator(f'{sec("/ws/infra")} button[data-act=primary] svg.codicon-modifier-spin').count() == 1)
-            check('syncing: ↓/↑ disabled', all(pg.locator(f'{sec("/ws/front")} .ahead-behind').nth(i).is_disabled() for i in range(2)))
+            check('syncing: ↓/↑ disabled', all(pg.locator(f'{sec("/ws/front")} .sync-count').nth(i).is_disabled() for i in range(2)))
             check('checking out: branch shows the loading spinner', pg.locator(f'{sec("/ws/billing")} .branch svg.codicon-loading.codicon-modifier-spin').count() == 1)
             pg.mouse.move(0, 0); pg.wait_for_timeout(350)
             prim.hover(force=True); pg.wait_for_timeout(650)

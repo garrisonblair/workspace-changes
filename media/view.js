@@ -50,10 +50,6 @@
       actions.push(b.sync
         ? btn('publish', spin(I.sync), `Publishing Branch "${r.branch}"...`, 'disabled data-busy')
         : btn('publish', I.cloudUp, 'Publish Branch'));
-    } else if (r.ahead || r.behind || b.sync) {
-      actions.push(b.sync
-        ? btn('sync', spin(I.sync), 'Synchronizing Changes...', 'disabled data-busy')
-        : btn('sync', I.sync, `Synchronize Changes ${sync.join(' ')}`));
     }
     if (r.changes > 0 || b.commit) {
       actions.push(b.commit
@@ -62,10 +58,21 @@
     }
     actions.push(btn('more', I.more, 'More Actions…'));
 
+    // Sync status like the native status bar / repository row: "⟳ 4↓ 0↑", both counts whenever either
+    // is non-zero (only ↓ for read-only remotes). ↓ pulls, ↑ pushes, the icon (or a 0) syncs.
     const counts = [];
-    const syncOff = b.sync ? ` disabled data-tip="${b.syncDetail === 'pull' ? 'Pulling' : b.syncDetail === 'push' ? 'Pushing' : 'Synchronizing'} Changes..."` : '';
-    if (r.behind) counts.push(`<button class="link ahead-behind" data-act="pull" ${syncOff || `data-tip="Pull ${r.behind} incoming commit${r.behind > 1 ? 's' : ''}"`}>${I.arrowDown}<span>${r.behind}</span></button>`);
-    if (r.ahead) counts.push(`<button class="link ahead-behind" data-act="push" ${syncOff || `data-tip="Push ${r.ahead} outgoing commit${r.ahead > 1 ? 's' : ''}"`}>${I.arrowUp}<span>${r.ahead}</span></button>`);
+    if (r.upstream && (r.ahead || r.behind || b.sync)) {
+      const syncTip = b.sync ? 'Synchronizing Changes...'
+        : (r.readOnlyRemote || !r.ahead) ? `Pull ${r.behind} commits from ${r.upstream}`
+          : !r.behind ? `Push ${r.ahead} commits to ${r.upstream}`
+            : `Pull ${r.behind} and push ${r.ahead} commits between ${r.upstream}`;
+      const off = b.sync ? ' disabled' : '';
+      const part = (act, n, arrow, tip) => `<button class="link sync-count" data-act="${n ? act : 'sync'}" data-tip="${esc(n && !b.sync ? tip : syncTip)}"${off}>${n}${arrow}</button>`;
+      let html2 = `<span class="sync-status"><button class="link sync-icon" data-act="sync" data-tip="${esc(syncTip)}"${off}${b.sync ? ' data-busy' : ''}>${b.sync ? spin(I.sync) : I.sync}</button>`;
+      html2 += part('pull', r.behind, '↓', `Pull ${r.behind} commit${r.behind === 1 ? '' : 's'} from ${r.upstream}`);
+      if (!r.readOnlyRemote) html2 += part('push', r.ahead, '↑', `Push ${r.ahead} commit${r.ahead === 1 ? '' : 's'} to ${r.upstream}`);
+      counts.push(html2 + '</span>');
+    }
 
     let html = `<section class="repo${collapsed ? ' collapsed' : ''}" data-root="${esc(r.root)}">`;
     html += `<div class="row repo-header" data-toggle="${esc(key)}" data-vscode-context="${ctx({ webviewSection: 'repo', root: r.root, nondefault: !r.isDefault, dirty: r.changes > 0 })}">`

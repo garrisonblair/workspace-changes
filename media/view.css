@@ -291,3 +291,10 @@ button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-off
 .icon-btn:disabled, button.link:disabled { cursor: default; opacity: 0.5; }
 .icon-btn:disabled:hover, button.link:disabled:hover { background: transparent; }
 .icon-btn[data-busy]:disabled, button.link.branch:disabled { opacity: 1; } /* a spinner stays fully visible */
+
+/* native-style sync status "⟳ 4↓ 0↑" */
+.repo-header .sync-status { display: inline-flex; align-items: center; margin-left: 4px; font-weight: 400; color: var(--vscode-descriptionForeground); flex: 0 0 auto; }
+.repo-header .sync-status button.link { padding: 0 2px; font-size: 12px; }
+.repo-header .sync-status .sync-icon .codicon { width: 14px; height: 14px; flex-basis: 14px; }
+.repo-header .sync-status .sync-count + .sync-count { margin-left: 1px; }
+button.link.sync-icon[data-busy]:disabled { opacity: 1; }

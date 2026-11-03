@@ -297,6 +297,13 @@ class WorkspaceChangesView {
       inputValue: repo.inputBox ? repo.inputBox.value : '',
       primary,
       busy,
+      // for the native-style "⟳ 4↓ 0↑" sync status (statusbar.ts / repository.ts syncLabel, syncTooltip)
+      upstream: repo.state.HEAD && repo.state.HEAD.upstream ? `${repo.state.HEAD.upstream.remote}/${repo.state.HEAD.upstream.name}` : null,
+      readOnlyRemote: (() => {
+        const up = repo.state.HEAD && repo.state.HEAD.upstream;
+        const remote = up && (repo.state.remotes || []).find((r) => r.name === up.remote);
+        return !!(remote && remote.isReadOnly);
+      })(),
       groups: GROUPS.filter((g) => groups[g.key].length).map((g) => {
         const all = groups[g.key].slice().sort((a, b) => a.uri.fsPath.localeCompare(b.uri.fsPath));
         return {
