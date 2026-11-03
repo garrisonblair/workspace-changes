@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.1
+- The sync status `⟳ 4↓ 0↑` is now a single button, like the native one: clicking it syncs (pull or push alone are in the `…` menu).
+
 ## 1.0.0
 - Sync status in the repo header like the native view: `⟳ 4↓ 0↑`, both counts whenever there is anything to pull or push (only `↓` for read-only remotes), with the native tooltips ("Pull 4 commits from origin/main"). Click `↓` to pull, `↑` to push, `⟳` (or a `0`) to sync; it spins while syncing. It replaces the separate sync button next to Commit.
 

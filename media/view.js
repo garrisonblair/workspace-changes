@@ -58,20 +58,17 @@
     }
     actions.push(btn('more', I.more, 'More Actions…'));
 
-    // Sync status like the native status bar / repository row: "⟳ 4↓ 0↑", both counts whenever either
-    // is non-zero (only ↓ for read-only remotes). ↓ pulls, ↑ pushes, the icon (or a 0) syncs.
+    // Sync status like the native status bar / repository row: one button "⟳ 4↓ 0↑" that syncs, both
+    // counts whenever either is non-zero (only ↓ for read-only remotes); it spins while syncing.
     const counts = [];
     if (r.upstream && (r.ahead || r.behind || b.sync)) {
       const syncTip = b.sync ? 'Synchronizing Changes...'
         : (r.readOnlyRemote || !r.ahead) ? `Pull ${r.behind} commits from ${r.upstream}`
           : !r.behind ? `Push ${r.ahead} commits to ${r.upstream}`
             : `Pull ${r.behind} and push ${r.ahead} commits between ${r.upstream}`;
-      const off = b.sync ? ' disabled' : '';
-      const part = (act, n, arrow, tip) => `<button class="link sync-count" data-act="${n ? act : 'sync'}" data-tip="${esc(n && !b.sync ? tip : syncTip)}"${off}>${n}${arrow}</button>`;
-      let html2 = `<span class="sync-status"><button class="link sync-icon" data-act="sync" data-tip="${esc(syncTip)}"${off}${b.sync ? ' data-busy' : ''}>${b.sync ? spin(I.sync) : I.sync}</button>`;
-      html2 += part('pull', r.behind, '↓', `Pull ${r.behind} commit${r.behind === 1 ? '' : 's'} from ${r.upstream}`);
-      if (!r.readOnlyRemote) html2 += part('push', r.ahead, '↑', `Push ${r.ahead} commit${r.ahead === 1 ? '' : 's'} to ${r.upstream}`);
-      counts.push(html2 + '</span>');
+      const label = r.readOnlyRemote ? `${r.behind}↓` : `${r.behind}↓ ${r.ahead}↑`;
+      counts.push(`<button class="link sync-status" data-act="sync" data-tip="${esc(syncTip)}"${b.sync ? ' disabled data-busy' : ''}>`
+        + `${b.sync ? spin(I.sync) : I.sync}<span class="sync-label">${esc(label)}</span></button>`);
     }
 
     let html = `<section class="repo${collapsed ? ' collapsed' : ''}" data-root="${esc(r.root)}">`;
