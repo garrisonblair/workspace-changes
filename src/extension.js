@@ -574,6 +574,71 @@ const actions = {
   },
 };
 
+/** The useful line of a git error: the first "fatal:" / "error:" line (git's last lines are boilerplate). */
+function gitErrorReason(err) {
+  const lines = String((err && (err.stderr || err.message)) || err || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const key = lines.find((l) => /^(fatal|error):/i.test(l)) || lines.find((l) => !/^Command failed/i.test(l)) || 'failed';
+  return key.replace(/^(fatal|error):\s*/i, '');
+}
+
+/**
+ * Pull every repo of the workspace that is on its default branch, has no local changes and has an
+ * upstream (shown in the panel or not). Uses the Git API (no dialog per repo), 4 repos at a time,
+ * with one progress notification and one summary at the end.
+ */
+async function pullAll(view, { concurrency = 4 } = {}) {
+  const all = await view.evaluate();
+  const targets = all.filter((e) => !e.facts.detached && e.facts.isDefault && e.facts.changes === 0 && e.facts.hasUpstream);
+  const skipped = all.length - targets.length;
+  if (!targets.length) {
+    vscode.window.showInformationMessage('Pull All: no repository is on its default branch without changes.');
+    return { pulled: [], failed: [], skipped };
+  }
+  const updated = [];
+  const upToDate = [];
+  const failed = [];
+  let cancelled = false;
+  await vscode.window.withProgress({
+    location: vscode.ProgressLocation.Notification,
+    title: `Pulling ${targets.length} ${targets.length === 1 ? 'repository' : 'repositories'}`,
+    cancellable: true,
+  }, async (progress, token) => {
+    const queue = targets.slice();
+    let done = 0;
+    const worker = async () => {
+      while (queue.length) {
+        if (token && token.isCancellationRequested) { cancelled = true; return; }
+        const e = queue.shift();
+        const before = e.repo.state.HEAD && e.repo.state.HEAD.commit;
+        try {
+          await track(e.repo, 'sync', 'pull', () => e.repo.pull());
+          const after = e.repo.state.HEAD && e.repo.state.HEAD.commit;
+          (after && after !== before ? updated : upToDate).push(e.label);
+        } catch (err) {
+          const msg = gitErrorReason(err);
+          failed.push({ label: e.label, msg });
+        }
+        done += 1;
+        progress.report({ increment: 100 / targets.length, message: `${done}/${targets.length}: ${e.label}` });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, targets.length) }, worker));
+  });
+
+  const pulled = updated.length + upToDate.length;
+  let summary = `Pulled ${pulled} ${pulled === 1 ? 'repository' : 'repositories'}: ${updated.length} updated${updated.length ? ` (${updated.join(', ')})` : ''}, ${upToDate.length} already up to date.`;
+  if (cancelled) summary += ` Cancelled before ${targets.length - pulled - failed.length} others.`;
+  if (skipped) summary += ` Skipped ${skipped} with changes or not on their default branch.`;
+  if (failed.length) {
+    // (non-modal notifications ignore `detail`, so the reasons go in the message)
+    vscode.window.showWarningMessage(`${summary} ${failed.length} failed: ${failed.map((f) => `${f.label} (${f.msg})`).join('; ')}.`, 'Show Git Output')
+      .then((pick) => { if (pick) vscode.commands.executeCommand('git.showOutput'); });
+  } else {
+    vscode.window.showInformationMessage(summary);
+  }
+  return { updated, upToDate, failed, skipped, cancelled };
+}
+
 // ---------------------------------------------------------------------------
 // file / group commands
 // ---------------------------------------------------------------------------
@@ -674,6 +739,7 @@ function registerCommands(context, view, api) {
   reg('clearTextFilter', () => view.setTextFilter(''));
   reg('commitAndPush', async (arg) => { const e = await pickRepo(view, arg); if (e) return view.commitFromView(e.repo.rootUri.fsPath, undefined, 'push'); });
   reg('commitAndSync', async (arg) => { const e = await pickRepo(view, arg); if (e) return view.commitFromView(e.repo.rootUri.fsPath, undefined, 'sync'); });
+  reg('pullAll', () => pullAll(view));
   reg('collapseAll', () => view.setAllCollapsed(true));
   reg('expandAll', () => view.setAllCollapsed(false));
 

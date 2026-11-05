@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.1.0
+- **Pull All** in the panel's `…` menu: pulls every repository of the workspace that is on its default branch with no local changes (including repos the panel hides), 4 at a time, with one progress notification (cancellable) and one summary: which repos got new commits, which were up to date, which were skipped, and why any failed.
+
 ## 1.0.1
 - The sync status `⟳ 4↓ 0↑` is now a single button, like the native one: clicking it syncs (pull or push alone are in the `…` menu).
 

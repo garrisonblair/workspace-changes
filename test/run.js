@@ -190,6 +190,7 @@ function makeVscode(workspaceRoot) {
     Range: class { constructor(start, end) { this.start = start; this.end = end; } },
     ViewColumn: { Active: -1, Beside: -2 },
     QuickPickItemKind: { Separator: -1, Default: 0 },
+    ProgressLocation: { SourceControl: 1, Window: 10, Notification: 15 },
     ConfigurationTarget: { Global: 1, Workspace: 2 },
     extensions: { getExtension: () => null, all: fixtureExtensions(), onDidChange: new EventEmitter().event },
     env: { openExternal: async (u) => { ui.opened.push(u.toString()); return true; } },
@@ -1090,6 +1091,77 @@ async function e2e() {
     assert.strictEqual(fake.ui.progressActive, 0);
     fake.ui.errors.length = 0;
     fake.config.criteria = ['changes', 'nonDefaultBranch'];
+  });
+
+  // ------------------------------------------------------------ Pull All
+  await t('Pull All: pulls every clean repo on its default branch (shown or not), skips the rest, one summary', async () => {
+    const mkRepo = (name, setup) => {
+      const remote = path.join(base, 'remotes', name + '.git');
+      fs.mkdirSync(remote, { recursive: true });
+      sh(remote, 'git init -q --bare -b main');
+      const dir = path.join(ws, name);
+      fs.mkdirSync(dir);
+      sh(dir, 'git init -q -b main && git config user.email t@t && git config user.name t && echo a > a && git add a && git commit -qm init');
+      sh(dir, `git remote add origin ${remote} && git push -q -u origin main && git remote set-head origin main`);
+      if (setup) setup(dir, remote);
+      const r = makeRepo(dir); api.repositories.push(r); api._open.fire(r);
+      return dir;
+    };
+    const behind = mkRepo('pa-behind', (dir, remote) => {
+      sh(base, `git clone -q ${remote} pa-behind-other`);
+      sh(path.join(base, 'pa-behind-other'), 'git config user.email t@t && git config user.name t && echo b > b && git add b && git commit -qm remote-change && git push -q');
+    });
+    const current = mkRepo('pa-current');
+    const dirty = mkRepo('pa-dirty', (dir) => fs.writeFileSync(path.join(dir, 'a'), 'local edit'));
+    const broken = mkRepo('pa-broken', (dir) => sh(dir, `git remote set-url origin ${path.join(base, 'does-not-exist.git')}`));
+    const branch = mkRepo('pa-branch', (dir) => sh(dir, 'git checkout -q -b feat/x && git push -q -u origin feat/x'));
+    for (const d of [behind, current, dirty, broken, branch]) apiRepo(d)._reload();
+
+    fake.config.criteria = ['changes']; // panel hides clean repos: Pull All must not care
+    const all = await view.evaluate();
+    const eligible = all.filter((e) => !e.facts.detached && e.facts.isDefault && e.facts.changes === 0 && e.facts.hasUpstream).map((e) => e.label).sort();
+    assert.ok(eligible.includes('pa-behind') && eligible.includes('pa-current') && eligible.includes('pa-broken'));
+    assert.ok(!eligible.includes('pa-dirty') && !eligible.includes('pa-branch'));
+    assert.ok(!(await labels()).includes('pa-behind'), 'pa-behind is hidden in the panel');
+
+    fake.ui.progress.length = 0; fake.ui.infos.length = 0; fake.ui.warnings.length = 0;
+    const res = await fake.commands.get('workspaceChanges.pullAll')();
+    assert.deepStrictEqual([...res.updated, ...res.upToDate, ...res.failed.map((f) => f.label)].sort(), eligible, 'exactly the eligible repos were pulled');
+    assert.ok(res.updated.includes('pa-behind'));
+    assert.ok(fs.existsSync(path.join(behind, 'b')), 'remote change arrived');
+    assert.ok(res.upToDate.includes('pa-current'));
+    // pa-broken fails; so does 'feature', whose remote an earlier test pointed at an unreachable host
+    const brokenFail = res.failed.find((f) => f.label === 'pa-broken');
+    assert.ok(brokenFail, 'pa-broken reported as failed');
+    assert.match(brokenFail.msg, /does-not-exist|not appear to be a git repository|Could not read/);
+    assert.ok(res.failed.every((f) => f.msg && f.msg !== 'failed'), 'each failure has a reason');
+    assert.strictEqual(res.skipped, all.length - eligible.length);
+    assert.strictEqual(fs.readFileSync(path.join(dirty, 'a'), 'utf8'), 'local edit', 'dirty repo untouched');
+    assert.strictEqual(sh(branch, 'git branch --show-current'), 'feat/x');
+    const notif = fake.ui.progress.find((p) => p.location === fake.vscode.ProgressLocation.Notification);
+    assert.ok(notif && notif.cancellable && /^Pulling \d+ repositories$/.test(notif.title), 'one progress notification with cancel');
+    assert.strictEqual(fake.ui.warnings.length, 1, 'one summary, not one dialog per repo');
+    assert.match(fake.ui.warnings[0], /^Pulled \d+ repositories: \d+ updated \(.*pa-behind.*\), \d+ already up to date\. Skipped \d+ with changes or not on their default branch\. \d+ failed: .*pa-broken \(/);
+    assert.ok(!(await model()).repos.some((r) => r.busy && r.busy.sync), 'no spinner left');
+    fake.ui.errors.length = 0;
+    fake.config.criteria = ['changes', 'nonDefaultBranch'];
+  });
+
+  await t('Pull All: nothing to pull → one info message', async () => {
+    const saved = api.repositories.splice(0);
+    const d = path.join(ws, 'pa-only-dirty');
+    fs.mkdirSync(d); sh(d, 'git init -q -b main && git config user.email t@t && git config user.name t && echo a > a');
+    api.repositories.push(makeRepo(d));
+    fake.ui.infos.length = 0;
+    const res = await fake.commands.get('workspaceChanges.pullAll')();
+    assert.match(fake.ui.infos.at(-1), /no repository is on its default branch without changes/);
+    assert.strictEqual(res.pulled.length, 0);
+    api.repositories.splice(0, api.repositories.length, ...saved);
+  });
+
+  await t('Pull All: in the panel\'s … menu and the command palette', () => {
+    assert.ok(pkg.contributes.menus['view/title'].some((e) => e.command === 'workspaceChanges.pullAll' && !/navigation/.test(e.group)));
+    assert.ok(!pkg.contributes.menus.commandPalette.some((e) => e.command === 'workspaceChanges.pullAll'));
   });
 
   await t('no unexpected errors surfaced', () => assert.deepStrictEqual(fake.ui.errors, []));

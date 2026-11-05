@@ -51,6 +51,7 @@ So commit hooks (pre-commit, commit-msg, husky, lint-staged…) run, failures sh
 | **Eye** | Temporarily show all repos. Click again to re-apply filters. |
 | **Refresh** | Re-reads default branches and the icon theme. |
 | **Collapse All / Expand All** | One toggle button, like the native views: shows Collapse All while any repo is open, Expand All once all are collapsed. |
+| `…` → **Pull All** | Pulls every repo in the workspace that is on its default branch with no local changes (also the ones the panel hides), 4 at a time, then shows one summary: updated, already up to date, skipped, failed (with the reason). |
 | `…` → **Manage Always-Hidden Repositories** | Un-hide repos hidden with *Always Hide Repository*. |
 
 ## Settings
